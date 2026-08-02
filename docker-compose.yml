@@ -68,5 +68,24 @@ services:
       - /dev/kmsg
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: sentinelops-prometheus
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus/rules:/etc/prometheus/rules:ro
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.33.1
+    container_name: sentinelops-alertmanager
+    volumes:
+      - ./docker/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+    restart: unless-stopped
+
 volumes:
   postgres_data:

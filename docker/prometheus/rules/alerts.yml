@@ -1,0 +1,42 @@
+groups:
+  - name: sentinelops
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          playbook: restart_service
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: "{{ $labels.job }} has been unreachable for 1 minute"
+
+      - alert: HighCPU
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+        for: 5m
+        labels:
+          severity: warning
+          playbook: collect_diagnostics
+        annotations:
+          summary: "High CPU on {{ $labels.instance }}"
+          description: "CPU usage has been above 90% for 5 minutes."
+
+      - alert: HighMemory
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          playbook: collect_diagnostics
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage has been above 85% for 5 minutes."
+
+      - alert: DiskPressure
+        expr: (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"}) * 100 < 15
+        for: 2m
+        labels:
+          severity: warning
+          playbook: disk_cleanup
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "Free disk space has dropped below 15%."
