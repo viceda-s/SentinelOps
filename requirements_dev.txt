@@ -1,0 +1,8 @@
+# Tooling for local development and CI. Pinned so a new release of ruff or
+# pytest can't break the build on its own.
+#
+# Check these are still current before you commit them the first time:
+#   pip index versions ruff
+ruff==0.12.8
+pytest==8.4.1
+pyyaml==6.0.2
