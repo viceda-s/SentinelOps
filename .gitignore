@@ -1,0 +1,30 @@
+# Secrets
+.env
+*.pem
+*.key
+
+# Generated incident artifacts
+reports/*.pdf
+!reports/INC-SAMPLE.pdf
+diagnostics/
+
+# Backups
+backups/
+
+# Runtime data volumes
+docker/grafana/data
+docker/prometheus/data
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
