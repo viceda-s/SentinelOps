@@ -29,6 +29,7 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 - Alertmanager is running and confirmed reachable from Prometheus (`/api/v1/alertmanagers` shows it as active).
 - 6 of 9 alert rules from the design are written and confirmed loaded: `ServiceDown`, `HighCPU`, `HighMemory`, `DiskPressure`, `HighErrorRate`, `HighLatency`.
 - `DiskPressure` excludes Docker Desktop's internal pseudo-filesystems (`erofs`, `overlay`, `squashfs`, `tmpfs`) and mount points (`/oldroot`, `/run*`), so it no longer false-positives on the VM's own internals.
+- Grafana is wired into `docker-compose.yml`, with the Prometheus datasource and dashboards both provisioned from files in the repo rather than clicked together by hand (`editable: false` / `allowUiUpdates: false`, so nothing drifts between what's committed and what's running). First dashboard (service availability via `up`) built in the UI, exported as JSON, and confirmed to reload correctly from disk.
 
 **Known gap:**
 
@@ -37,7 +38,7 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 **Not yet built:**
 
 - The remaining 3 alert rules: `ContainerRestartLoop` needs a restart-counting approach cAdvisor doesn't expose directly; `ResponseEngineDown` and `RemediationFailureRateHigh` depend on a response engine that doesn't exist yet.
-- Grafana (not wired into `docker-compose.yml` yet).
+- The rest of the planned Grafana dashboard (API request rate, error rate, latency, CPU, memory, disk, active alerts) — only the service-availability panel exists so far.
 - The entire response engine: data model, webhook handler, state machine, remediation worker, playbooks.
 - CMDB (`cmdb/services.yaml` doesn't exist yet), `bootstrap.sh`, `teardown.sh`, `chaos.sh`.
 - Runbooks, ARCHITECTURE.md, and ADRs.
@@ -72,6 +73,8 @@ curl http://localhost:8081/health    # same thing, through nginx
 Prometheus UI: `http://localhost:9090` (check `/targets` — `api`, `node-exporter`, `cadvisor` should all show `UP`).
 
 Alertmanager UI: `http://localhost:9093`.
+
+Grafana UI: `http://localhost:3001` (log in with `admin` and the `GRAFANA_ADMIN_PASSWORD` from your `.env`). The Prometheus datasource and the "SentinelOps: Phase 1" dashboard are both provisioned automatically on first boot.
 
 ### Tear down
 

@@ -87,5 +87,19 @@ services:
       - "9093:9093"
     restart: unless-stopped
 
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: sentinelops-grafana
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/var/lib/grafana/provisioning/dashboards/json:ro
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
 volumes:
   postgres_data:
