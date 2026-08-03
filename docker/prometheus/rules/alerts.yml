@@ -32,7 +32,7 @@ groups:
           description: "Memory usage has been above 85% for 5 minutes."
 
       - alert: DiskPressure
-        expr: (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"}) * 100 < 15
+        expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|erofs|overlay|squashfs", mountpoint!~"/oldroot|/run.*"} / node_filesystem_size_bytes{fstype!~"tmpfs|erofs|overlay|squashfs", mountpoint!~"/oldroot|/run.*"}) * 100 < 15
         for: 2m
         labels:
           severity: warning

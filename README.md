@@ -28,10 +28,7 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 - Prometheus is scraping `api`, `node-exporter`, and `cAdvisor`.
 - Alertmanager is running and confirmed reachable from Prometheus (`/api/v1/alertmanagers` shows it as active).
 - 4 of 9 alert rules from the design are written and confirmed loaded: `ServiceDown`, `HighCPU`, `HighMemory`, `DiskPressure`.
-
-**Known issue:**
-
-- `DiskPressure` currently has a false-positive on the Docker Desktop VM's internal `erofs` filesystem (`/oldroot`) — the query needs a filesystem-type allowlist instead of its current single `tmpfs` exclusion. Not yet fixed.
+- `DiskPressure` excludes Docker Desktop's internal pseudo-filesystems (`erofs`, `overlay`, `squashfs`, `tmpfs`) and mount points (`/oldroot`, `/run*`), so it no longer false-positives on the VM's own internals.
 
 **Not yet built:**
 
