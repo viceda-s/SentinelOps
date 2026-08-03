@@ -30,6 +30,7 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 - Grafana is fully provisioned from files (datasource + an 8-panel dashboard), no UI drift.
 - The webhook ingestion pipeline is built and running as a real container (`webhook-handler`, `docker/webhook-handler/`), verified end-to-end through Docker Compose: Alertmanager posts to it over the compose network, it enriches and dedupes against the CMDB and the data model, and persists a correctly-populated incident in Postgres. Underneath it: the data model (`incidents`, `incident_events`, `remediation_attempts`, with dedupe and history-integrity constraints enforced by the database itself), the state machine (`transition()`, one function every status change goes through), the CMDB (`cmdb/services.yaml`, all 5 services), and `handle_alert()`'s core logic (enrich, resolve the playbook, dedupe, create the incident, escalate unknown services). Design details and reasoning for each are in `docs/implementation-findings.md` and the code itself.
 - The remediation worker's queue claim (`automation/response_engine/worker.py`, `claim_incident()`) is written and verified under real concurrency: `SELECT ... FOR UPDATE SKIP LOCKED` lets multiple workers pull from the same `incidents` queue without ever double-claiming or blocking on each other, confirmed with overlapping transactions and a held row lock, not just sequential calls. Claiming an incident atomically moves it `NEW → ACKNOWLEDGED` via `transition()`, so callers only ever see incidents they genuinely own.
+- Both Phase 1 runbooks are written (`docs/runbooks/service-down.md`, `docs/runbooks/collect-diagnostics.md`), organized by operational response rather than one-per-alert-type since `collect_diagnostics` covers four alerts with an identical automated response — a deliberate, documented deviation from DESIGN.md's wording (`docs/implementation-findings.md`, finding 3). `automation/scripts/validate_cmdb.py` now passes cleanly for the first time this session.
 
 **Known gap:**
 
@@ -39,7 +40,6 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 
 - The remaining 3 alert rules: `ContainerRestartLoop`, `ResponseEngineDown`, `RemediationFailureRateHigh`. The latter two need a response engine that doesn't fully exist yet. `ContainerRestartLoop` is blocked on an environment limitation: cAdvisor here can't reach the Docker daemon, so every cAdvisor metric carries only an anonymous cgroup `id`, with no container name to key an alert on — writing the rule against raw cgroup ids would be both unreadable and unmappable to the `service` labels the rest of the design relies on. Left unwritten on purpose; options for later: mount a working Docker socket, add a small purpose-built exporter, or revisit if the project ever moves to Kubernetes.
 - The rest of the remediation worker: playbook dispatch (`restart_service`, `collect_diagnostics`), talking to the Docker Engine API, recording `remediation_attempts`, and the verify step (`RESOLVED`/`ESCALATED`). The report generator.
-- Runbooks: `cmdb/services.yaml` references a runbook file that doesn't exist yet, so `validate_cmdb.py` correctly fails on it — left unresolved on purpose rather than pointed at a placeholder.
 - `bootstrap.sh`, `teardown.sh`, `chaos.sh`, ARCHITECTURE.md, ADRs.
 
 ## Quick Start
@@ -111,7 +111,7 @@ SentinelOps/
 └── requirements-dev.txt
 ```
 
-The full target layout — `docs/adr/`, `docs/runbooks/`, `reports/`, `tests/` — is in `docs/DESIGN.md`'s repository layout section. Those directories don't exist yet; they'll appear as the corresponding pieces get built.
+The full target layout — `docs/adr/`, `reports/`, `tests/` — is in `docs/DESIGN.md`'s repository layout section. Those directories don't exist yet; they'll appear as the corresponding pieces get built. (`docs/runbooks/` already exists — see [Runbooks](#runbooks).)
 
 ## Incident Lifecycle
 
@@ -119,7 +119,10 @@ Not demonstrable yet — this section will describe the detect → triage → en
 
 ## Runbooks
 
-Not written yet. `docs/DESIGN.md` describes the intended format (symptom, detection, automated response, manual verification, escalation) and Phase 1's plan for two runbooks.
+Two runbooks, following `docs/DESIGN.md`'s format (symptom, detection, automated response, manual verification, escalation):
+
+- [`docs/runbooks/service-down.md`](docs/runbooks/service-down.md) — `ServiceDown` → `restart_service`.
+- [`docs/runbooks/collect-diagnostics.md`](docs/runbooks/collect-diagnostics.md) — `HighCPU`, `HighMemory`, `HighErrorRate`, `HighLatency` → `collect_diagnostics`. One runbook rather than four, since all four alerts share the same automated response; see `docs/implementation-findings.md` for why this reads "one per alert type" as "one per operational response."
 
 ## Security Considerations
 

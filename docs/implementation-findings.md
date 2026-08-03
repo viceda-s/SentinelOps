@@ -47,3 +47,28 @@ Applied in code now (`automation/response_engine/state_machine.py`), with a
 comment pointing back to this file, since the alternative — leaving the
 design's contradiction in place and papering over it in the handler — would
 have been worse than deviating from a frozen document.
+
+## 3. Runbooks are one per operational response, and the CMDB can't express that
+
+DESIGN.md says runbooks are written "one per alert type." Phase 1's two
+playbooks don't map cleanly onto that: `restart_service` serves `ServiceDown`
+alone, but `collect_diagnostics` serves four different alerts (`HighCPU`,
+`HighMemory`, `HighErrorRate`, `HighLatency`) with an identical automated
+response. Writing four near-duplicate runbooks that would need to stay in
+sync forever adds no value over one runbook organized around the response
+instead of the rule that triggered it — so `docs/runbooks/` has
+`service-down.md` and `collect-diagnostics.md`, not one file per alert.
+
+That surfaced a second, separate problem: `cmdb/services.yaml`'s schema has
+one `runbook:` field per *service*, not per alert or per playbook. `api` can
+fire both `ServiceDown` and `HighCPU`/`HighErrorRate`/etc., but its CMDB entry
+can only point at one runbook path. Every service's `runbook:` currently
+points at `service-down.md`, which is only correct for the `ServiceDown` case
+— there's no way today for the CMDB to tell an operator "for this alert, see
+this runbook" when a service has more than one alert type mapped to it.
+
+Not fixed now — this needs either a `runbook:` per playbook (mirroring how
+`playbooks:` already maps alert name to playbook name) or a lookup that
+combines the fired alert's playbook with a playbook-to-runbook table
+elsewhere. Left as a known gap rather than a quick patch, since the CMDB
+schema change affects `validate_cmdb.py` and every existing entry.
