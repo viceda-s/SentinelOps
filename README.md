@@ -58,7 +58,9 @@ This covers what actually runs today — the monitored estate and the observabil
 git clone <this-repo>
 cd SentinelOps
 cp .env.example .env
-# edit .env and set a real POSTGRES_PASSWORD
+# edit .env and set real values for POSTGRES_PASSWORD and GRAFANA_ADMIN_PASSWORD
+# to generate a strong random password for either, run:
+#   openssl rand -base64 24
 docker compose up -d
 ```
 
