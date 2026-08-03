@@ -29,7 +29,8 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 - Alertmanager is running and confirmed reachable from Prometheus (`/api/v1/alertmanagers` shows it as active).
 - 6 of 9 alert rules from the design are written and confirmed loaded: `ServiceDown`, `HighCPU`, `HighMemory`, `DiskPressure`, `HighErrorRate`, `HighLatency`.
 - `DiskPressure` excludes Docker Desktop's internal pseudo-filesystems (`erofs`, `overlay`, `squashfs`, `tmpfs`) and mount points (`/oldroot`, `/run*`), so it no longer false-positives on the VM's own internals.
-- Grafana is wired into `docker-compose.yml`, with the Prometheus datasource and dashboards both provisioned from files in the repo rather than clicked together by hand (`editable: false` / `allowUiUpdates: false`, so nothing drifts between what's committed and what's running). First dashboard (service availability via `up`) built in the UI, exported as JSON, and confirmed to reload correctly from disk.
+- Grafana is wired into `docker-compose.yml`, with the Prometheus datasource and dashboards both provisioned from files in the repo rather than clicked together by hand (`editable: false` / `allowUiUpdates: false`, so nothing drifts between what's committed and what's running).
+- The Phase 1 dashboard has all 8 panels: service availability (`up`), API request rate, API error rate, API latency (p95), CPU, memory, disk usage, and an Active alerts list (firing/pending/error states from Alertmanager). Built in the UI, exported with "Save to File" to keep real datasource references, and confirmed to reload correctly from disk after a container restart.
 
 **Known gap:**
 
@@ -38,7 +39,6 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 **Not yet built:**
 
 - The remaining 3 alert rules: `ContainerRestartLoop` needs a restart-counting approach cAdvisor doesn't expose directly; `ResponseEngineDown` and `RemediationFailureRateHigh` depend on a response engine that doesn't exist yet.
-- The rest of the planned Grafana dashboard (API request rate, error rate, latency, CPU, memory, disk, active alerts) — only the service-availability panel exists so far.
 - The entire response engine: data model, webhook handler, state machine, remediation worker, playbooks.
 - CMDB (`cmdb/services.yaml` doesn't exist yet), `bootstrap.sh`, `teardown.sh`, `chaos.sh`.
 - Runbooks, ARCHITECTURE.md, and ADRs.
@@ -75,6 +75,8 @@ Prometheus UI: `http://localhost:9090` (check `/targets` — `api`, `node-export
 Alertmanager UI: `http://localhost:9093`.
 
 Grafana UI: `http://localhost:3001` (log in with `admin` and the `GRAFANA_ADMIN_PASSWORD` from your `.env`). The Prometheus datasource and the "SentinelOps: Phase 1" dashboard are both provisioned automatically on first boot.
+
+**If you change `POSTGRES_PASSWORD` in `.env` after the stack has already run once:** Postgres only applies that value when it initializes an empty data directory, so an existing `postgres_data` volume keeps the *old* password even after `.env` changes — `api` will then fail to authenticate with `password authentication failed`. Fix by recreating the volume (`docker compose down` then `docker volume rm sentinelops_postgres_data` then `docker compose up -d`) rather than editing `.env` alone.
 
 ### Tear down
 
