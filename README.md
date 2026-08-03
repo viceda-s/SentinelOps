@@ -31,6 +31,7 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 - `DiskPressure` excludes Docker Desktop's internal pseudo-filesystems (`erofs`, `overlay`, `squashfs`, `tmpfs`) and mount points (`/oldroot`, `/run*`), so it no longer false-positives on the VM's own internals.
 - Grafana is wired into `docker-compose.yml`, with the Prometheus datasource and dashboards both provisioned from files in the repo rather than clicked together by hand (`editable: false` / `allowUiUpdates: false`, so nothing drifts between what's committed and what's running).
 - The Phase 1 dashboard has all 8 panels: service availability (`up`), API request rate, API error rate, API latency (p95), CPU, memory, disk usage, and an Active alerts list (firing/pending/error states from Alertmanager). Built in the UI, exported with "Save to File" to keep real datasource references, and confirmed to reload correctly from disk after a container restart.
+- The response engine's data model — `incidents`, `incident_events`, `remediation_attempts` — is written and verified against a fresh Postgres volume. `incidents` has a partial unique index on `fingerprint` so only one active incident can exist per alert condition at a time, without blocking a genuinely new incident once the old one reaches a terminal state (`CLOSED` or `SUPPRESSED_MAINTENANCE`). `incident_events` and `remediation_attempts` both use a composite unique constraint (`incident_id` + a per-incident sequence/attempt number) and a `RESTRICT`-on-delete foreign key back to `incidents`, so history can never be silently orphaned or deleted out from under an incident.
 
 **Known gap:**
 
@@ -38,8 +39,8 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 
 **Not yet built:**
 
-- The remaining 3 alert rules: `ContainerRestartLoop` needs a restart-counting approach cAdvisor doesn't expose directly; `ResponseEngineDown` and `RemediationFailureRateHigh` depend on a response engine that doesn't exist yet.
-- The entire response engine: data model, webhook handler, state machine, remediation worker, playbooks.
+- The remaining 3 alert rules: `ContainerRestartLoop`, `ResponseEngineDown`, `RemediationFailureRateHigh`. The latter two depend on a response engine that doesn't exist yet. `ContainerRestartLoop` is blocked on an environment limitation: cAdvisor can't reach the Docker daemon here (`docker.sock` is a dangling symlink inside the container on Docker Desktop for Mac), so every cAdvisor metric — not just restart counts — carries only an anonymous cgroup `id`, with no container name or image label to key an alert on. Writing the rule against raw cgroup ids would make it both unreadable and impossible to map back to the `service` labels the rest of the design relies on, so it's deliberately left unwritten rather than worked around. Options for later: mount a working Docker socket into cAdvisor, add a small purpose-built exporter that reports restart counts by container name, or revisit this if the project ever moves to Kubernetes, where restart counts are a native, well-labeled metric.
+- The rest of the response engine: webhook handler, state machine, remediation worker, playbooks. (The data model is built — see above.)
 - CMDB (`cmdb/services.yaml` doesn't exist yet), `bootstrap.sh`, `teardown.sh`, `chaos.sh`.
 - Runbooks, ARCHITECTURE.md, and ADRs.
 
