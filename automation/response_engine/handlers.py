@@ -1,0 +1,326 @@
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+
+import psycopg2
+from psycopg2.extras import Json
+
+from .state_machine import transition
+
+logger = logging.getLogger(__name__)
+
+TERMINAL_STATES = (
+    "CLOSED",
+    "SUPPRESSED_MAINTENANCE",
+)
+
+def handle_alert(conn, alert: dict, cmdb: dict) -> None:
+    """
+    Process a single Alertmanager alert.
+
+    Responsibilities:
+        - extract Alertmanager fields
+        - enrich from the CMDB
+        - resolve the playbook
+        - create a NEW incident
+        - create the initial CREATED event
+        - deduplicate using the database unique constraint
+        - immediately escalate unknown services
+    """
+
+    #
+    # Phase 1 only processes firing alerts
+    #
+
+    if alert.get("status") != "firing":
+        logger.info(
+            "Ignoring non-firing alert",
+            extra={
+                "status": alert.get("status"),
+                "fingerprint": alert.get("fingerprint"),
+            },
+        )
+        return
+
+    labels = alert.get("labels") or {}
+    annotations = alert.get("annotations") or {}
+
+    fingerprint = alert["fingerprint"]
+    alert_name = labels["alertname"]
+    service = labels["job"]
+    severity = labels["severity"]
+    detected_at = alert["startsAt"]
+
+    (
+        owner,
+        tier,
+        criticality,
+        playbook,
+        sla_response,
+        sla_resolution,
+        known_service,
+    ) = resolve_cmdb_entry(
+        cmdb,
+        service,
+        alert_name,
+    )
+
+    #
+    # Alertmanager carries a playbook too.
+    # The CMDB is authoritative; mismatches are logged.
+    #
+
+    alertmanager_playbook = labels.get("playbook")
+
+    if (alertmanager_playbook is not None and alertmanager_playbook != playbook):
+        logger.warning(
+            "Playbook mismatch",
+            extra={
+                "service": service,
+                "alert": alert_name,
+                "cmdb_playbook": playbook,
+                "alertmanager_playbook": alertmanager_playbook,
+            },
+        )
+
+    #
+    # TODO:
+    # Replace with proprer sequetial allocator.
+    #
+
+    reference = generate_reference()
+
+    try:
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                INSERT INTO incidents (
+                    reference,
+                    fingerprint,
+                    alert_name,
+                    service,
+                    severity,
+                    status,
+                    owner,
+                    tier,
+                    criticality,
+                    playbook,
+                    detected_at,
+                    sla_response_minutes,
+                    sla_resolution_minutes,
+                    labels,
+                    annotations
+                )
+                VALUES (
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    'NEW',
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s
+                )
+                RETURNING *
+                """,
+                (
+                    reference,
+                    fingerprint,
+                    alert_name,
+                    service,
+                    severity,
+                    owner,
+                    tier,
+                    criticality,
+                    playbook,
+                    detected_at,
+                    sla_response,
+                    sla_resolution,
+                    Json(labels),
+                    Json(annotations),
+                ),
+            )
+
+            incident = cur.fetchone()
+
+            cur.execute(
+                """
+                INSERT INTO incident_events (
+                    incident_id,
+                    sequence,
+                    occurred_at,
+                    actor,
+                    event_type,
+                    message,
+                    payload
+                )
+                VALUES (
+                    %s,
+                    %s,
+                    NOW(),
+                    'alertmanager',
+                    'CREATED',
+                    %s,
+                    %s
+                )
+                """,
+                (
+                    incident["id"],
+                    1,
+                    f"{alert_name} received",
+                    Json(alert),
+                ),
+            )
+
+            #
+            # Unknown services escalate immediately
+            #
+
+            if not known_service:
+
+                transition(
+                    conn,
+                    incident,
+                    "ESCALATED",
+                    "webhook_handler",
+                    "Unknown service in CMDB",
+                )
+
+        conn.commit()
+
+    except psycopg2.errors.UniqueViolation:
+
+        conn.rollback()
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                SELECT *
+                FROM incidents
+                WHERE fingerprint = %s
+                    AND status NOT IN (
+                        'CLOSED',
+                        'SUPPRESSED_MAINTENANCE'
+                    )
+                """,
+                (fingerprint,)
+            )
+
+            incident = cur.fetchone()
+
+            if incident is None:
+                raise RuntimeError(
+                    "UniqueViolation occurred but no active "
+                    f"incident exists for fingerprint "
+                    f"{fingerprint!r}."
+                )
+
+            cur.execute(
+                """
+                SELECT COALESCE(MAX(sequence), 0) + 1
+                AS next_sequence
+                FROM incident_events
+                WHERE incident_id = %s
+                """,
+                (incident["id"],),
+            )
+
+            sequence = cur.fetchone()["next_sequence"]
+
+            cur.execute(
+                """
+                INSERT INTO incident_events (
+                    incident_id,
+                    sequence,
+                    occurred_at,
+                    actor,
+                    event_type,
+                    message,
+                    payload
+                )
+                VALUES (
+                    %s,
+                    %s,
+                    NOW(),
+                    'alertmanager',
+                    'NOTE',
+                    %s,
+                    %s
+                )
+                """,
+                (
+                    incident["id"],
+                    sequence,
+                    "Duplicate Alertmanager notification received",
+                    Json(alert),
+                ),
+            )
+
+        conn.commit()
+
+
+def resolve_cmdb_entry(cmdb: dict, service: str, alert_name: str):
+    """
+    Resolve service metadata from the CMDB.
+
+    Unknown services deliberately fallback to unassigned/unknown/none and are escalated immediately after creation.
+    """
+
+    services = cmdb["services"]
+
+    if service not in services:
+        return (
+            "unassigned",
+            "unknown",
+            "unknown",
+            "none",
+            0,
+            0,
+            False,
+        )
+
+    entry = services[service]
+
+    playbook = entry.get(
+        "playbooks",
+        {},
+    ).get(
+        alert_name,
+        "none",
+    )
+
+    sla = entry["sla"]
+
+    return (
+        entry["owner"],
+        entry["tier"],
+        entry["criticality"],
+        playbook,
+        sla["response_minutes"],
+        sla["resolution_minutes"],
+        True,
+    )
+
+
+def generate_reference() -> str:
+    """
+    Temporary placeholder.
+
+    TODO:
+    Replace with the real incident reference allocator.
+    """
+
+    return (
+        f"INC-{datetime.now(timezone.utc):%Y}-TODO"
+    )
+
