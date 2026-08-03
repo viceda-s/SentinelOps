@@ -27,12 +27,16 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 - The full monitored estate is up, wired, and tested end-to-end: `api` genuinely depends on Postgres (health check queries the database, not just the process), `nginx` reverse-proxies to `api`, and all services expose real metrics.
 - Prometheus is scraping `api`, `node-exporter`, and `cAdvisor`.
 - Alertmanager is running and confirmed reachable from Prometheus (`/api/v1/alertmanagers` shows it as active).
-- 4 of 9 alert rules from the design are written and confirmed loaded: `ServiceDown`, `HighCPU`, `HighMemory`, `DiskPressure`.
+- 6 of 9 alert rules from the design are written and confirmed loaded: `ServiceDown`, `HighCPU`, `HighMemory`, `DiskPressure`, `HighErrorRate`, `HighLatency`.
 - `DiskPressure` excludes Docker Desktop's internal pseudo-filesystems (`erofs`, `overlay`, `squashfs`, `tmpfs`) and mount points (`/oldroot`, `/run*`), so it no longer false-positives on the VM's own internals.
+
+**Known gap:**
+
+- `HighErrorRate`'s ratio only reflects errors caught inside route handlers (`OperationalError`); an unhandled exception that gunicorn turns into a 500 doesn't currently increment either the error or request counter, since request accounting happens inline in each route rather than in Flask middleware. Fixing this means moving metric recording to `after_request`/`teardown_request` so every request is counted regardless of how it ends — not yet done.
 
 **Not yet built:**
 
-- The remaining 5 alert rules (`HighErrorRate`, `HighLatency` need careful histogram/rate math; `ContainerRestartLoop` needs a restart-counting approach cAdvisor doesn't expose directly; `ResponseEngineDown` and `RemediationFailureRateHigh` depend on a response engine that doesn't exist yet).
+- The remaining 3 alert rules: `ContainerRestartLoop` needs a restart-counting approach cAdvisor doesn't expose directly; `ResponseEngineDown` and `RemediationFailureRateHigh` depend on a response engine that doesn't exist yet.
 - Grafana (not wired into `docker-compose.yml` yet).
 - The entire response engine: data model, webhook handler, state machine, remediation worker, playbooks.
 - CMDB (`cmdb/services.yaml` doesn't exist yet), `bootstrap.sh`, `teardown.sh`, `chaos.sh`.

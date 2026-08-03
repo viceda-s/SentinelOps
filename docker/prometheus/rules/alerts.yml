@@ -1,15 +1,15 @@
 groups:
   - name: sentinelops
     rules:
-      - alert: ServiceDown
-        expr: up == 0
-        for: 1m
+      - alert: DiskPressure
+        expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|erofs|overlay|squashfs", mountpoint!~"/oldroot|/run.*"} / node_filesystem_size_bytes{fstype!~"tmpfs|erofs|overlay|squashfs", mountpoint!~"/oldroot|/run.*"}) * 100 < 15
+        for: 2m
         labels:
-          severity: critical
-          playbook: restart_service
+          severity: warning
+          playbook: disk_cleanup
         annotations:
-          summary: "{{ $labels.job }} is down"
-          description: "{{ $labels.job }} has been unreachable for 1 minute"
+          summary: "Low disk space on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "Free disk space has dropped below 15%."
 
       - alert: HighCPU
         expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
@@ -21,6 +21,26 @@ groups:
           summary: "High CPU on {{ $labels.instance }}"
           description: "CPU usage has been above 90% for 5 minutes."
 
+      - alert: HighErrorRate
+        expr: rate(api_errors_total[2m]) / sum by (endpoint) (rate(api_requests_total[2m])) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          playbook: collect_diagnostics
+        annotations:
+          summary: "High error rate on {{ $labels.endpoint }}"
+          description: "5xx error ratio has exceeded 5% for 2 minutes."
+
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, sum by (le, endpoint) (rate(api_request_latency_seconds_bucket[5m]))) > 1
+        for: 5m
+        labels:
+          severity: warning
+          playbook: collect_diagnostics
+        annotations:
+          summary: "High latency on {{ $labels.endpoint }}"
+          description: "95th percentile latency has exceeded 1 second for 5 minutes"
+
       - alert: HighMemory
         expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
         for: 5m
@@ -31,12 +51,12 @@ groups:
           summary: "High memory usage on {{ $labels.instance }}"
           description: "Memory usage has been above 85% for 5 minutes."
 
-      - alert: DiskPressure
-        expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|erofs|overlay|squashfs", mountpoint!~"/oldroot|/run.*"} / node_filesystem_size_bytes{fstype!~"tmpfs|erofs|overlay|squashfs", mountpoint!~"/oldroot|/run.*"}) * 100 < 15
-        for: 2m
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
         labels:
-          severity: warning
-          playbook: disk_cleanup
+          severity: critical
+          playbook: restart_service
         annotations:
-          summary: "Low disk space on {{ $labels.instance }} ({{ $labels.mountpoint }})"
-          description: "Free disk space has dropped below 15%."
+          summary: "{{ $labels.job }} is down"
+          description: "{{ $labels.job }} has been unreachable for 1 minute"
