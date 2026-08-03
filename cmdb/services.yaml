@@ -1,0 +1,77 @@
+services:
+  nginx:
+    container_name: sentinelops-nginx
+    owner: platform-team
+    escalation_contact: platform-oncall@email.local
+    tier: prod
+    criticality: medium
+    runbook: docs/runbooks/service-down.md
+    playbooks:
+      ServiceDown: restart_service
+      ContainerRestartLoop: collect_diagnostics
+    sla:
+      response_minutes: 10
+      resolution_minutes: 60
+
+  api:
+    container_name: sentinelops-api
+    owner: backend-team
+    escalation_contact: backend-oncall@email.local
+    tier: prod
+    criticality: high
+    runbook: docs/runbooks/service-down.md
+    playbooks:
+      ServiceDown: restart_service
+      ContainerRestartLoop: collect_diagnostics
+      HighErrorRate: collect_diagnostics
+      HighLatency: collect_diagnostics
+      HighCPU: collect_diagnostics
+      HighMemory: collect_diagnostics
+    sla:
+      response_minutes: 5
+      resolution_minutes: 60
+    dependencies:
+      - postgres
+
+  postgres:
+    container_name: sentinelops-postgres
+    owner: database-team
+    escalation_contact: database-oncall@email.local
+    tier: prod
+    criticality: high
+    runbook: docs/runbooks/service-down.md
+    playbooks:
+      ServiceDown: restart_service
+      ContainerRestartLoop: collect_diagnostics
+      DiskPressure: disk_cleanup
+      HighCPU: collect_diagnostics
+      HighMemory: collect_diagnostics
+    sla:
+      response_minutes: 5
+      resolution_minutes: 60
+
+  node-exporter:
+    container_name: sentinelops-node-exporter
+    owner: platform-team
+    escalation_contact: platform-oncall@email.local
+    tier: prod
+    criticality: medium
+    runbook: docs/runbooks/service-down.md
+    playbooks:
+      ServiceDown: restart_service
+    sla:
+      response_minutes: 15
+      resolution_minutes: 60
+
+  cadvisor:
+    container_name: sentinelops-cadvisor
+    owner: platform-team
+    escalation_contact: platform-oncall@email.local
+    tier: prod
+    criticality: medium
+    runbook: docs/runbooks/service-down.md
+    playbooks:
+      ServiceDown: restart_service
+    sla:
+      response_minutes: 15
+      resolution_minutes: 60
