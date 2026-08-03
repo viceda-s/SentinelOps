@@ -84,12 +84,7 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
             },
         )
 
-    #
-    # TODO:
-    # Replace with proprer sequetial allocator.
-    #
-
-    reference = generate_reference()
+    reference = generate_reference(conn)
 
     try:
         with conn.cursor() as cur:
@@ -312,15 +307,38 @@ def resolve_cmdb_entry(cmdb: dict, service: str, alert_name: str):
     )
 
 
-def generate_reference() -> str:
+def generate_reference(conn) -> str:
     """
-    Temporary placeholder.
+    Allocate a unique incident reference
 
-    TODO:
-    Replace with the real incident reference allocator.
+    References are sequential per UTC calendar year and are allocated atomically using PostgreSQL row-level locking.
+
+    The counter update participates in the caller's transaction, so a rollback also rolls back the allocated reference number.
     """
 
-    return (
-        f"INC-{datetime.now(timezone.utc):%Y}-TODO"
-    )
+    year = datetime.now(timezone.utc).year
+
+    with conn.cursor() as cur:
+
+        cur.execute (
+            """
+            INSERT INTO incident_reference_counters (
+                year,
+                next_value
+            )
+            VALUES (
+                %s,
+                1
+            )
+            ON CONFLICT (year)
+            DO UPDATE
+            SET next_value = incident_reference_counters.next_value + 1
+            RETURNING next_value
+            """,
+            (year,)
+        )
+
+        counter = cur.fetchone()["next_value"]
+
+    return f"INC-{year}-{counter:04d}"
 
