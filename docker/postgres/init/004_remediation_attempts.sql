@@ -1,3 +1,9 @@
+-- Records every automated remediation attempt executed by the worker.
+--
+-- An incident may have multiple attempts. Each attempt is numbered     sequentially so retries become part of the permanent audit trail rather than overwriting previous executions.
+--
+-- The UNIQUE constraint prevents two workers from accidentally recording the same attempt number for a single incident.
+
 CREATE TABLE remediation_attempts (
     id SERIAL PRIMARY KEY,
     incident_id INTEGER NOT NULL

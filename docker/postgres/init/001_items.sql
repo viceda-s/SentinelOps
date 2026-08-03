@@ -1,7 +1,10 @@
--- docker/postgres/init/001_items.sql
+-- The /items endpoint performs a real PostgreSQL query against this table, providing a simple end-to-end health check that exercises:
 --
--- Placeholder table for the api service's /items endpoint. Content is arbitrary; it exists so /items does a real round trip to Postgres.
--- Runs once, automatically, on first container init (see docker-entrypoint-initdb.d in the postgres image docs).
+--   Client → Nginx → API → PostgreSQL → API → Client
+--
+-- The data itself has no business meaning; it simply verifies that the API can connect to the database and execute queries successfully.
+--
+-- This script runs automatically the first time the PostgreSQL data directory is initialized (docker-entrypoint-initdb.d).
 
 CREATE TABLE IF NOT EXISTS items (
     id          SERIAL PRIMARY KEY,

@@ -1,3 +1,9 @@
+-- Immutable incident audit log.
+--
+-- Every meaningful action performed on an incident is recorded here: creation, state transitions, duplicate notifications, playbook activity, escalation, acknowledgements and operator notes.
+--
+-- Events are ordered using an explicit sequence number rather than relying solely on timestamps. This guarantees deterministic ordering even if two events happen within the same timestamp resolution.
+
 CREATE TABLE incident_events (
     id SERIAL PRIMARY KEY,
     incident_id INTEGER NOT NULL

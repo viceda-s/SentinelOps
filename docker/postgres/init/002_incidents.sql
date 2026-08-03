@@ -1,3 +1,11 @@
+-- Primary incident record.
+--
+-- Exactly one row represents one active incident. The incident's lifecycle (NEW → ACKNOWLEDGED → IN_PROGRESS → RESOLVED → CLOSED) is tracked by the status column, while a complete audit trail of every change is stored separately in incident_events.
+--
+-- Fingerprint deduplication is enforced by a partial unique index: only incidents that are still active participate in the uniqueness check. Once an incident reaches a terminal state (CLOSED or SUPPRESSED_MAINTENANCE), the same fingerprint may legitimately create a new incident in the future.
+--
+-- labels and annotations store the original Alertmanager metadata exactly as received so the response engine retains the complete alert context.
+
 CREATE TABLE incidents (
     id SERIAL PRIMARY KEY,
     reference TEXT UNIQUE NOT NULL,
