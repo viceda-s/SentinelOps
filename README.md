@@ -2,7 +2,7 @@
 
 An enterprise-inspired monitoring and incident response lab: Prometheus, Grafana, Docker, Python, and PostgreSQL, wired together to practise the full incident lifecycle — detect, triage, enrich, remediate, verify, document, audit — not just the monitoring part of it.
 
-**Status: Phase 1 in progress.** The monitored estate and part of the observability stack are built and verified end-to-end. The response engine (webhook handler, remediation worker, incident storage) hasn't been built yet. See [Current status](#current-status) below for exactly what works today versus what's still ahead. Design reasoning for the whole project lives in [`docs/DESIGN.md`](docs/DESIGN.md).
+**Status: Phase 1 in progress.** The monitored estate and observability stack are done. Of the response engine, the data model, state machine, CMDB, and core alert-handling logic are done; the HTTP layer, remediation worker, and playbooks aren't. See [Current status](#current-status) for the full breakdown. Design reasoning lives in [`docs/DESIGN.md`](docs/DESIGN.md); real gaps found between that design and reality while building are tracked in [`docs/implementation-findings.md`](docs/implementation-findings.md).
 
 ## Overview
 
@@ -16,7 +16,7 @@ Three groups of services:
 
 - **Monitored estate** — `nginx`, `api`, `postgres`, `node-exporter`, `cAdvisor`. The thing being watched.
 - **Observability** — Prometheus, Alertmanager, Grafana. Detection and routing.
-- **Response engine** *(not yet built)* — webhook handler, remediation worker, report generator, backed by Postgres. Turns alerts into incidents, tries to fix them, and records what happened.
+- **Response engine** *(partially built)* — webhook handler, remediation worker, report generator, backed by Postgres. Turns alerts into incidents, tries to fix them, and records what happened. The data model, state machine, CMDB, and the handler's core alert-processing logic exist; the HTTP layer, worker, and report generator don't yet.
 
 See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved incident" section for the full flow and the reasoning behind splitting the webhook handler from the remediation worker.
 
@@ -24,16 +24,11 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 
 **Built and verified:**
 
-- The full monitored estate is up, wired, and tested end-to-end: `api` genuinely depends on Postgres (health check queries the database, not just the process), `nginx` reverse-proxies to `api`, and all services expose real metrics.
-- Prometheus is scraping `api`, `node-exporter`, and `cAdvisor`.
-- Alertmanager is running and confirmed reachable from Prometheus (`/api/v1/alertmanagers` shows it as active).
-- 6 of 9 alert rules from the design are written and confirmed loaded: `ServiceDown`, `HighCPU`, `HighMemory`, `DiskPressure`, `HighErrorRate`, `HighLatency`.
-- `DiskPressure` excludes Docker Desktop's internal pseudo-filesystems (`erofs`, `overlay`, `squashfs`, `tmpfs`) and mount points (`/oldroot`, `/run*`), so it no longer false-positives on the VM's own internals.
-- Grafana is wired into `docker-compose.yml`, with the Prometheus datasource and dashboards both provisioned from files in the repo rather than clicked together by hand (`editable: false` / `allowUiUpdates: false`, so nothing drifts between what's committed and what's running).
-- The Phase 1 dashboard has all 8 panels: service availability (`up`), API request rate, API error rate, API latency (p95), CPU, memory, disk usage, and an Active alerts list (firing/pending/error states from Alertmanager). Built in the UI, exported with "Save to File" to keep real datasource references, and confirmed to reload correctly from disk after a container restart.
-- The response engine's data model — `incidents`, `incident_events`, `remediation_attempts` — is written and verified against a fresh Postgres volume. `incidents` has a partial unique index on `fingerprint` so only one active incident can exist per alert condition at a time, without blocking a genuinely new incident once the old one reaches a terminal state (`CLOSED` or `SUPPRESSED_MAINTENANCE`). `incident_events` and `remediation_attempts` both use a composite unique constraint (`incident_id` + a per-incident sequence/attempt number) and a `RESTRICT`-on-delete foreign key back to `incidents`, so history can never be silently orphaned or deleted out from under an incident.
-- The state machine (`automation/response_engine/state_machine.py`) is written and verified: a single `transition(conn, incident, to_status, actor, message)` function checks every status change against the allowed-transitions table from the design, updates `incidents` (including the right timestamp column for `ACKNOWLEDGED`/`RESOLVED`/`CLOSED`), and appends the corresponding `incident_events` row, all inside a transaction the caller controls. Invalid transitions raise and are logged rather than silently failing. Tested end-to-end through a full `NEW → ACKNOWLEDGED → IN_PROGRESS → RESOLVED → CLOSED` run plus a rejected out-of-band transition.
-- `cmdb/services.yaml` has entries for all 5 estate services (`nginx`, `api`, `postgres`, `node-exporter`, `cadvisor`), keyed to match their Prometheus `job` labels, with ownership, criticality, SLA targets, and a `playbooks` mapping scoped to what's actually operationally sensible for each — `api` gets the full set of failure-mode playbooks, the two metrics exporters get only `ServiceDown`, since restarting them doesn't make sense as a response to alerts about the things *they* observe. Passes `automation/scripts/validate_cmdb.py` except for the (expected, unresolved) missing runbook file — see below.
+- The monitored estate (`nginx`, `api`, `postgres`, `node-exporter`, `cAdvisor`) is up, wired, and tested end-to-end, including a real `api` → Postgres dependency in its health check.
+- Prometheus is scraping the estate; Alertmanager is running and confirmed reachable from it.
+- 6 of 9 alert rules are written and loaded: `ServiceDown`, `HighCPU`, `HighMemory`, `DiskPressure`, `HighErrorRate`, `HighLatency`.
+- Grafana is fully provisioned from files (datasource + an 8-panel dashboard), no UI drift.
+- The response engine's foundations are built and verified against real Postgres: the data model (`incidents`, `incident_events`, `remediation_attempts`, with dedupe and history-integrity constraints enforced by the database itself), the state machine (`transition()`, one function every status change goes through), the CMDB (`cmdb/services.yaml`, all 5 services), and the webhook handler's core logic (`handle_alert()` — enriches, resolves the playbook, dedupes, creates the incident, escalates unknown services). Design details and reasoning for each are in `docs/implementation-findings.md` and the code itself.
 
 **Known gap:**
 
@@ -41,11 +36,10 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 
 **Not yet built:**
 
-- The remaining 3 alert rules: `ContainerRestartLoop`, `ResponseEngineDown`, `RemediationFailureRateHigh`. The latter two depend on a response engine that doesn't exist yet. `ContainerRestartLoop` is blocked on an environment limitation: cAdvisor can't reach the Docker daemon here (`docker.sock` is a dangling symlink inside the container on Docker Desktop for Mac), so every cAdvisor metric — not just restart counts — carries only an anonymous cgroup `id`, with no container name or image label to key an alert on. Writing the rule against raw cgroup ids would make it both unreadable and impossible to map back to the `service` labels the rest of the design relies on, so it's deliberately left unwritten rather than worked around. Options for later: mount a working Docker socket into cAdvisor, add a small purpose-built exporter that reports restart counts by container name, or revisit this if the project ever moves to Kubernetes, where restart counts are a native, well-labeled metric.
-- The rest of the response engine: webhook handler, remediation worker, playbooks. (The data model, state machine, and CMDB are built — see above.)
-- Runbooks: `cmdb/services.yaml` references `docs/runbooks/service-down.md` for every service, but that file doesn't exist yet, so `validate_cmdb.py` currently — correctly — fails on it. Left unresolved on purpose rather than pointed at a placeholder, consistent with this project's fail-loudly-over-silently approach; will be fixed when the runbooks get written.
-- `bootstrap.sh`, `teardown.sh`, `chaos.sh`.
-- Runbooks, ARCHITECTURE.md, and ADRs.
+- The remaining 3 alert rules: `ContainerRestartLoop`, `ResponseEngineDown`, `RemediationFailureRateHigh`. The latter two need a response engine that doesn't fully exist yet. `ContainerRestartLoop` is blocked on an environment limitation: cAdvisor here can't reach the Docker daemon, so every cAdvisor metric carries only an anonymous cgroup `id`, with no container name to key an alert on — writing the rule against raw cgroup ids would be both unreadable and unmappable to the `service` labels the rest of the design relies on. Left unwritten on purpose; options for later: mount a working Docker socket, add a small purpose-built exporter, or revisit if the project ever moves to Kubernetes.
+- The rest of the response engine: the webhook handler's HTTP layer, the remediation worker, playbooks.
+- Runbooks: `cmdb/services.yaml` references a runbook file that doesn't exist yet, so `validate_cmdb.py` correctly fails on it — left unresolved on purpose rather than pointed at a placeholder.
+- `bootstrap.sh`, `teardown.sh`, `chaos.sh`, ARCHITECTURE.md, ADRs.
 
 ## Quick Start
 
@@ -96,7 +90,8 @@ docker compose down
 SentinelOps/
 ├── README.md
 ├── docs/
-│   └── DESIGN.md
+│   ├── DESIGN.md
+│   └── implementation-findings.md
 ├── docker-compose.yml
 ├── .env.example
 ├── docker/
@@ -104,11 +99,17 @@ SentinelOps/
 │   ├── nginx/            reverse proxy config
 │   ├── postgres/init/    schema + seed data, runs on first boot
 │   ├── prometheus/       scrape config, alert rules
-│   └── alertmanager/     routing config
+│   ├── alertmanager/     routing config
+│   └── grafana/          provisioning, dashboards
+├── automation/
+│   ├── response_engine/  state_machine.py, handlers.py
+│   └── scripts/          validate_cmdb.py
+├── cmdb/
+│   └── services.yaml
 └── requirements-dev.txt
 ```
 
-The full target layout — `automation/`, `cmdb/`, `docs/adr/`, `docs/runbooks/`, `reports/`, `tests/` — is in `docs/DESIGN.md`'s repository layout section. Those directories don't exist yet; they'll appear as the corresponding pieces get built.
+The full target layout — `docs/adr/`, `docs/runbooks/`, `reports/`, `tests/` — is in `docs/DESIGN.md`'s repository layout section. Those directories don't exist yet; they'll appear as the corresponding pieces get built.
 
 ## Incident Lifecycle
 
