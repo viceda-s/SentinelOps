@@ -2,7 +2,7 @@
 
 An enterprise-inspired monitoring and incident response lab: Prometheus, Grafana, Docker, Python, and PostgreSQL, wired together to practise the full incident lifecycle — detect, triage, enrich, remediate, verify, document, audit — not just the monitoring part of it.
 
-**Status: Phase 1 in progress.** The monitored estate, observability stack, and webhook ingestion pipeline (Alertmanager → webhook handler → Postgres) are done and running as real containers. The remediation worker and playbooks aren't built yet. See [Current status](#current-status) for the full breakdown. Design reasoning lives in [`docs/DESIGN.md`](docs/DESIGN.md); real gaps found between that design and reality while building are tracked in [`docs/implementation-findings.md`](docs/implementation-findings.md).
+**Status: Phase 1 in progress.** The monitored estate, observability stack, and webhook ingestion pipeline (Alertmanager → webhook handler → Postgres) are done and running as real containers. The remediation worker's queue claim is built and verified; playbook execution isn't built yet. See [Current status](#current-status) for the full breakdown. Design reasoning lives in [`docs/DESIGN.md`](docs/DESIGN.md); real gaps found between that design and reality while building are tracked in [`docs/implementation-findings.md`](docs/implementation-findings.md).
 
 ## Overview
 
@@ -16,7 +16,7 @@ Three groups of services:
 
 - **Monitored estate** — `nginx`, `api`, `postgres`, `node-exporter`, `cAdvisor`. The thing being watched.
 - **Observability** — Prometheus, Alertmanager, Grafana. Detection and routing.
-- **Response engine** *(partially built)* — webhook handler, remediation worker, report generator, backed by Postgres. Turns alerts into incidents, tries to fix them, and records what happened. The webhook handler (data model, state machine, CMDB, and both its core logic and its HTTP layer) is built and running as its own container; the remediation worker and report generator aren't built yet.
+- **Response engine** *(partially built)* — webhook handler, remediation worker, report generator, backed by Postgres. Turns alerts into incidents, tries to fix them, and records what happened. The webhook handler (data model, state machine, CMDB, and both its core logic and its HTTP layer) is built and running as its own container; the remediation worker can claim incidents off the queue but can't yet run a playbook against one; the report generator isn't built yet.
 
 See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved incident" section for the full flow and the reasoning behind splitting the webhook handler from the remediation worker.
 
@@ -29,6 +29,7 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 - 6 of 9 alert rules are written and loaded: `ServiceDown`, `HighCPU`, `HighMemory`, `DiskPressure`, `HighErrorRate`, `HighLatency`.
 - Grafana is fully provisioned from files (datasource + an 8-panel dashboard), no UI drift.
 - The webhook ingestion pipeline is built and running as a real container (`webhook-handler`, `docker/webhook-handler/`), verified end-to-end through Docker Compose: Alertmanager posts to it over the compose network, it enriches and dedupes against the CMDB and the data model, and persists a correctly-populated incident in Postgres. Underneath it: the data model (`incidents`, `incident_events`, `remediation_attempts`, with dedupe and history-integrity constraints enforced by the database itself), the state machine (`transition()`, one function every status change goes through), the CMDB (`cmdb/services.yaml`, all 5 services), and `handle_alert()`'s core logic (enrich, resolve the playbook, dedupe, create the incident, escalate unknown services). Design details and reasoning for each are in `docs/implementation-findings.md` and the code itself.
+- The remediation worker's queue claim (`automation/response_engine/worker.py`, `claim_incident()`) is written and verified under real concurrency: `SELECT ... FOR UPDATE SKIP LOCKED` lets multiple workers pull from the same `incidents` queue without ever double-claiming or blocking on each other, confirmed with overlapping transactions and a held row lock, not just sequential calls. Claiming an incident atomically moves it `NEW → ACKNOWLEDGED` via `transition()`, so callers only ever see incidents they genuinely own.
 
 **Known gap:**
 
@@ -37,7 +38,7 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 **Not yet built:**
 
 - The remaining 3 alert rules: `ContainerRestartLoop`, `ResponseEngineDown`, `RemediationFailureRateHigh`. The latter two need a response engine that doesn't fully exist yet. `ContainerRestartLoop` is blocked on an environment limitation: cAdvisor here can't reach the Docker daemon, so every cAdvisor metric carries only an anonymous cgroup `id`, with no container name to key an alert on — writing the rule against raw cgroup ids would be both unreadable and unmappable to the `service` labels the rest of the design relies on. Left unwritten on purpose; options for later: mount a working Docker socket, add a small purpose-built exporter, or revisit if the project ever moves to Kubernetes.
-- The rest of the response engine: the remediation worker, playbooks, report generator.
+- The rest of the remediation worker: playbook dispatch (`restart_service`, `collect_diagnostics`), talking to the Docker Engine API, recording `remediation_attempts`, and the verify step (`RESOLVED`/`ESCALATED`). The report generator.
 - Runbooks: `cmdb/services.yaml` references a runbook file that doesn't exist yet, so `validate_cmdb.py` correctly fails on it — left unresolved on purpose rather than pointed at a placeholder.
 - `bootstrap.sh`, `teardown.sh`, `chaos.sh`, ARCHITECTURE.md, ADRs.
 
