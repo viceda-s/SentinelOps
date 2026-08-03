@@ -101,5 +101,19 @@ services:
       - prometheus
     restart: unless-stopped
 
+  webhook-handler:
+    build:
+      context: .
+      dockerfile: docker/webhook-handler/Dockerfile
+    container_name: sentinelops-webhook-handler
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:

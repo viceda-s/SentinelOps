@@ -1,4 +1,4 @@
-# Runtime dependencies for the api service container.
+# Runtime dependencies for the webhook-handler service container.
 # Pinned so a rebuild months from now can't silently pull a breaking release.
 #
 # Check these are still current before you commit them the first time:
@@ -6,5 +6,5 @@
 
 Flask==3.0.3
 psycopg2-binary==2.9.9
-prometheus-client==0.20.0
+PyYAML==6.0.3
 gunicorn==22.0.0

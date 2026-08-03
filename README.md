@@ -2,7 +2,7 @@
 
 An enterprise-inspired monitoring and incident response lab: Prometheus, Grafana, Docker, Python, and PostgreSQL, wired together to practise the full incident lifecycle — detect, triage, enrich, remediate, verify, document, audit — not just the monitoring part of it.
 
-**Status: Phase 1 in progress.** The monitored estate and observability stack are done. Of the response engine, the data model, state machine, CMDB, and core alert-handling logic are done; the HTTP layer, remediation worker, and playbooks aren't. See [Current status](#current-status) for the full breakdown. Design reasoning lives in [`docs/DESIGN.md`](docs/DESIGN.md); real gaps found between that design and reality while building are tracked in [`docs/implementation-findings.md`](docs/implementation-findings.md).
+**Status: Phase 1 in progress.** The monitored estate, observability stack, and webhook ingestion pipeline (Alertmanager → webhook handler → Postgres) are done and running as real containers. The remediation worker and playbooks aren't built yet. See [Current status](#current-status) for the full breakdown. Design reasoning lives in [`docs/DESIGN.md`](docs/DESIGN.md); real gaps found between that design and reality while building are tracked in [`docs/implementation-findings.md`](docs/implementation-findings.md).
 
 ## Overview
 
@@ -16,7 +16,7 @@ Three groups of services:
 
 - **Monitored estate** — `nginx`, `api`, `postgres`, `node-exporter`, `cAdvisor`. The thing being watched.
 - **Observability** — Prometheus, Alertmanager, Grafana. Detection and routing.
-- **Response engine** *(partially built)* — webhook handler, remediation worker, report generator, backed by Postgres. Turns alerts into incidents, tries to fix them, and records what happened. The data model, state machine, CMDB, and the handler's core alert-processing logic exist; the HTTP layer, worker, and report generator don't yet.
+- **Response engine** *(partially built)* — webhook handler, remediation worker, report generator, backed by Postgres. Turns alerts into incidents, tries to fix them, and records what happened. The webhook handler (data model, state machine, CMDB, and both its core logic and its HTTP layer) is built and running as its own container; the remediation worker and report generator aren't built yet.
 
 See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved incident" section for the full flow and the reasoning behind splitting the webhook handler from the remediation worker.
 
@@ -28,7 +28,7 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 - Prometheus is scraping the estate; Alertmanager is running and confirmed reachable from it.
 - 6 of 9 alert rules are written and loaded: `ServiceDown`, `HighCPU`, `HighMemory`, `DiskPressure`, `HighErrorRate`, `HighLatency`.
 - Grafana is fully provisioned from files (datasource + an 8-panel dashboard), no UI drift.
-- The response engine's foundations are built and verified against real Postgres: the data model (`incidents`, `incident_events`, `remediation_attempts`, with dedupe and history-integrity constraints enforced by the database itself), the state machine (`transition()`, one function every status change goes through), the CMDB (`cmdb/services.yaml`, all 5 services), and the webhook handler's core logic (`handle_alert()` — enriches, resolves the playbook, dedupes, creates the incident, escalates unknown services). Design details and reasoning for each are in `docs/implementation-findings.md` and the code itself.
+- The webhook ingestion pipeline is built and running as a real container (`webhook-handler`, `docker/webhook-handler/`), verified end-to-end through Docker Compose: Alertmanager posts to it over the compose network, it enriches and dedupes against the CMDB and the data model, and persists a correctly-populated incident in Postgres. Underneath it: the data model (`incidents`, `incident_events`, `remediation_attempts`, with dedupe and history-integrity constraints enforced by the database itself), the state machine (`transition()`, one function every status change goes through), the CMDB (`cmdb/services.yaml`, all 5 services), and `handle_alert()`'s core logic (enrich, resolve the playbook, dedupe, create the incident, escalate unknown services). Design details and reasoning for each are in `docs/implementation-findings.md` and the code itself.
 
 **Known gap:**
 
@@ -37,7 +37,7 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 **Not yet built:**
 
 - The remaining 3 alert rules: `ContainerRestartLoop`, `ResponseEngineDown`, `RemediationFailureRateHigh`. The latter two need a response engine that doesn't fully exist yet. `ContainerRestartLoop` is blocked on an environment limitation: cAdvisor here can't reach the Docker daemon, so every cAdvisor metric carries only an anonymous cgroup `id`, with no container name to key an alert on — writing the rule against raw cgroup ids would be both unreadable and unmappable to the `service` labels the rest of the design relies on. Left unwritten on purpose; options for later: mount a working Docker socket, add a small purpose-built exporter, or revisit if the project ever moves to Kubernetes.
-- The rest of the response engine: the webhook handler's HTTP layer, the remediation worker, playbooks.
+- The rest of the response engine: the remediation worker, playbooks, report generator.
 - Runbooks: `cmdb/services.yaml` references a runbook file that doesn't exist yet, so `validate_cmdb.py` correctly fails on it — left unresolved on purpose rather than pointed at a placeholder.
 - `bootstrap.sh`, `teardown.sh`, `chaos.sh`, ARCHITECTURE.md, ADRs.
 
@@ -96,13 +96,14 @@ SentinelOps/
 ├── .env.example
 ├── docker/
 │   ├── api/              Flask app, Dockerfile, requirements
+│   ├── webhook-handler/  Dockerfile, requirements (code lives in automation/)
 │   ├── nginx/            reverse proxy config
 │   ├── postgres/init/    schema + seed data, runs on first boot
 │   ├── prometheus/       scrape config, alert rules
 │   ├── alertmanager/     routing config
 │   └── grafana/          provisioning, dashboards
 ├── automation/
-│   ├── response_engine/  state_machine.py, handlers.py
+│   ├── response_engine/  state_machine.py, handlers.py, webhook_handler.py
 │   └── scripts/          validate_cmdb.py
 ├── cmdb/
 │   └── services.yaml
