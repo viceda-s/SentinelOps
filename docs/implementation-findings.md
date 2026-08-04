@@ -109,3 +109,26 @@ validation in `validate_cmdb.py`, and updates to every existing service entry.
 Applied in Phase 1 because the design's single "`/health`" step could not
 describe the real monitored estate without either hardcoded exceptions or
 incorrect recovery verification.
+
+## 5. Alert coverage is defined by Prometheus scrape jobs, not alert rules
+
+DESIGN.md says `bootstrap.sh` validates that "an alert rule's service label has
+a CMDB entry." The implemented Prometheus configuration doesn't contain a
+static service label in its alert rules. Each rule uses the runtime
+`$labels.job` value attached to the firing time series, so the service identity
+only exists once Prometheus evaluates the rule.
+
+The static source of truth for monitored services is
+`docker/prometheus/prometheus.yml`, where each `scrape_config` defines a
+`job_name`. These job names (`api`, `node-exporter`, `cadvisor`, etc.) are the
+same identifiers the webhook handler later receives as `labels["job"]` and uses
+to look up the service in the CMDB.
+
+The validation therefore moved from "every alert rule has a CMDB entry" to
+"every configured Prometheus scrape job has a CMDB entry." This preserves the
+operational intent of the original design while matching how Prometheus
+actually models monitored services.
+
+Proposed DESIGN.md wording: "bootstrap.sh validates that every configured
+Prometheus scrape job has a corresponding CMDB entry before starting the
+stack."

@@ -39,6 +39,8 @@ VALID_VERIFICATION_TYPES = {
     "running",
 }
 
+PROMETHEUS_CONFIG = REPO_ROOT / "docker" / "prometheus" / "prometheus.yml"
+
 
 class CmdbError(Exception):
     """The CMDB can't be loaded at all, so there's nothing to validate."""
@@ -49,7 +51,8 @@ class DuplicateKeyError(CmdbError):
 
 
 class StrictLoader(yaml.SafeLoader):
-    """yaml.safe_load keeps the last duplicate key and says nothing about it.
+    """
+    yaml.safe_load keeps the last duplicate key and says nothing about it.
 
     A service defined twice would silently lose its first definition, so catch
     it here instead.
@@ -90,7 +93,8 @@ def load_cmdb() -> dict:
 
 
 def load_compose_services() -> set[str] | None:
-    """Service and container names from docker-compose.yml.
+    """
+    Service and container names from docker-compose.yml.
 
     Returns None if there's no compose file yet, so the check can be skipped
     rather than reported as a failure.
@@ -107,9 +111,28 @@ def load_compose_services() -> set[str] | None:
     return names
 
 
+def load_scrape_jobs() -> set[str] | None:
+    """
+    Prometheus scrape job names.
+
+    Returns None if prometheus.yml does not exist so the check can be skipped.
+    """
+    if not PROMETHEUS_CONFIG.exists():
+        return None
+
+    config = yaml.safe_load(PROMETHEUS_CONFIG.read_text()) or {}
+    jobs = set()
+    for scrape in config.get("scrape_configs") or []:
+        job = scrape.get("job_name")
+        if job:
+            jobs.add(job)
+    return jobs
+
+
 def validate(cmdb: dict) -> list[str]:
     errors: list[str] = []
     services = cmdb["services"] or {}
+    scrape_jobs = load_scrape_jobs()
     compose_services = load_compose_services()
 
     for name, svc in services.items():
@@ -165,6 +188,7 @@ def validate(cmdb: dict) -> list[str]:
             for alert, playbook in playbooks.items():
                 if playbook not in IMPLEMENTED_PLAYBOOKS:
                     errors.append(f"[{name}] alert '{alert}' maps to unknown playbook '{playbook}'")
+
         else:
             errors.append(f"[{name}] playbooks should be a mapping")
 
@@ -182,7 +206,12 @@ def validate(cmdb: dict) -> list[str]:
         # parses fine but means neither can be brought up first.
         for dep in svc.get("dependencies") or []:
             if dep not in services:
-                errors.append(f"[{name}] dependency '{dep}' is not in the cmdb")
+                errors.append(f"[{name}] dependency '{dep}' is not in the CMDB")
+
+    if scrape_jobs is not None:
+        for job in sorted(scrape_jobs):
+            if job not in services:
+                errors.append(f"[prometheus] scrape job '{job}' has no CMDB entry")
 
     return errors
 
