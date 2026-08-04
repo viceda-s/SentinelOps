@@ -4,18 +4,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# NEW -> ESCALATED (in addition to DESIGN.md v1.0's NEW -> ACKNOWLEDGED |
-# SUPPRESSED_MAINTENANCE) is a deliberate deviation from the frozen design,
-# not an oversight. An unknown service (not in the CMDB) has to escalate
-# straight out of enrichment, before any worker has claimed it -- see
-# implementation-findings.md. Faking an ACKNOWLEDGED event to satisfy the
-# original table would misrepresent the audit trail, since ACKNOWLEDGED
-# specifically means "claimed by a worker."
+# NEW -> ESCALATED (in addition to DESIGN.md v1.0's NEW -> ACKNOWLEDGED | SUPPRESSED_MAINTENANCE) is a deliberate deviation from the frozen design, not an oversight. An unknown service (not in the CMDB) has to escalate straight out of enrichment, before any worker has claimed it -- see implementation-findings.md. Faking an ACKNOWLEDGED event to satisfy the original table would misrepresent the audit trail, since ACKNOWLEDGED specifically means "claimed by a worker."
 ALLOWED_TRANSITIONS = {
     "NEW": {"ACKNOWLEDGED", "SUPPRESSED_MAINTENANCE", "ESCALATED"},
     "ACKNOWLEDGED": {"IN_PROGRESS", "ESCALATED"},
     "ESCALATED": {"IN_PROGRESS", "RESOLVED"},
-    "IN_PROGRESS": {"RESOLVED"},
+    "IN_PROGRESS": {"RESOLVED", "ESCALATED"},
     "RESOLVED": {"CLOSED"},
 }
 
