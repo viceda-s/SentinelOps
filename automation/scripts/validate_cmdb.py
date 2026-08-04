@@ -14,6 +14,8 @@ from pathlib import Path
 
 import yaml
 
+from automation.response_engine.playbooks import IMPLEMENTED_PLAYBOOKS
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CMDB_PATH = REPO_ROOT / "cmdb" / "services.yaml"
 COMPOSE_PATH = REPO_ROOT / "docker-compose.yml"
@@ -28,16 +30,6 @@ REQUIRED_KEYS = (
     "verification",
 )
 REQUIRED_SLA_KEYS = ("response_minutes", "resolution_minutes")
-
-# TODO: once the playbooks are their own files under
-# automation/response_engine/playbooks/, read the directory instead of keeping
-# this list in step with the worker by hand.
-KNOWN_PLAYBOOKS = {
-    "restart_service",
-    "collect_diagnostics",
-    "disk_cleanup",
-    "none",
-}
 
 VALID_CRITICALITY = {"high", "medium", "low"}
 
@@ -171,11 +163,8 @@ def validate(cmdb: dict) -> list[str]:
         playbooks = svc.get("playbooks") or {}
         if isinstance(playbooks, dict):
             for alert, playbook in playbooks.items():
-                if playbook not in KNOWN_PLAYBOOKS:
-                    errors.append(
-                        f"[{name}] alert '{alert}' maps to unknown playbook "
-                        f"'{playbook}'"
-                    )
+                if playbook not in IMPLEMENTED_PLAYBOOKS:
+                    errors.append(f"[{name}] alert '{alert}' maps to unknown playbook '{playbook}'")
         else:
             errors.append(f"[{name}] playbooks should be a mapping")
 

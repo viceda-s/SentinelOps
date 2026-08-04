@@ -214,11 +214,7 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
             incident = cur.fetchone()
 
             if incident is None:
-                raise RuntimeError(
-                    "UniqueViolation occurred but no active "
-                    f"incident exists for fingerprint "
-                    f"{fingerprint!r}."
-                )
+                raise RuntimeError(f"UniqueViolation occurred but no active incident exists for fingerprin {fingerprint!r}.")
 
             cur.execute(
                 """
@@ -286,13 +282,8 @@ def resolve_cmdb_entry(cmdb: dict, service: str, alert_name: str):
 
     entry = services[service]
 
-    playbook = entry.get(
-        "playbooks",
-        {},
-    ).get(
-        alert_name,
-        "none",
-    )
+    # "none" is an internal sentinel meaning this alert has no configured playbook. It is not a valid playbook name in the CMDB itself.
+    playbook = entry.get("playbooks", {},).get(alert_name,"none")
 
     sla = entry["sla"]
 

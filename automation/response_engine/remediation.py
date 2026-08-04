@@ -6,6 +6,7 @@ import json
 
 from .state_machine import transition
 from .verification import verify_recovery
+from .playbooks import IMPLEMENTED_PLAYBOOKS
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,7 @@ VERIFY_INTERVAL = 1
 RESTART_COOLDOWN = 5
 MAX_RESTART_ATTEMPTS = 2
 DIAGNOSTICS_DIR = Path("/app/diagnostics")
+
 
 def record_attempt_start(conn, incident: dict, playbook: str) -> int:
     """
