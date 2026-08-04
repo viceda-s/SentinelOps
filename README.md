@@ -1,177 +1,301 @@
 # SentinelOps
 
-An enterprise-inspired monitoring and incident response lab: Prometheus, Grafana, Docker, Python, and PostgreSQL, wired together to practise the full incident lifecycle — detect, triage, enrich, remediate, verify, document, audit — not just the monitoring part of it.
+SentinelOps is an enterprise-inspired monitoring and incident response platform built with Docker, Prometheus, Alertmanager, Grafana, Python, Flask, and PostgreSQL.
 
-**Status: Phase 1 in progress.** The full incident pipeline is up and running end-to-end, autonomously: Alertmanager → webhook handler → Postgres → remediation worker → a playbook that actually restarts a container or collects diagnostics. DESIGN.md's central "Done when" criterion — `chaos.sh stop api` producing a fully autonomous detect → enrich → acknowledge → restart → verify → resolve cycle — has been demonstrated against the real running system. See [Current status](#current-status) for the full breakdown. Design reasoning lives in [`docs/DESIGN.md`](docs/DESIGN.md); real gaps found between that design and reality while building are tracked in [`docs/implementation-findings.md`](docs/implementation-findings.md).
+Most monitoring projects stop once an alert has been generated. SentinelOps focuses on everything that happens afterwards: transforming alerts into incidents, enriching them with operational context, attempting automated remediation, verifying recovery, and recording a complete audit trail.
 
-## Overview
+The project was built to explore how production incident response systems coordinate detection, enrichment, remediation, verification, and auditing—not simply how monitoring systems generate alerts.
 
-Most monitoring labs stop at "the alert fired." SentinelOps is built to show what happens after that: how an alert becomes an incident, who owns it, what gets fixed automatically, what has to go to a human, and what record is left behind. Prometheus and Grafana are components here, not the subject — the subject is incident management.
+---
 
-The full design rationale, including what was deliberately left out and why, is in [`docs/DESIGN.md`](docs/DESIGN.md).
+# Current Status
 
-## Architecture
+**Phase 1 is complete and fully verified against real infrastructure.**
 
-Three groups of services:
+The complete autonomous incident pipeline has been implemented and validated:
 
-- **Monitored estate** — `nginx`, `api`, `postgres`, `node-exporter`, `cAdvisor`. The thing being watched.
-- **Observability** — Prometheus, Alertmanager, Grafana. Detection and routing.
-- **Response engine** *(partially built)* — webhook handler, remediation worker, report generator, backed by Postgres. Turns alerts into incidents, tries to fix them, and records what happened. The webhook handler (data model, state machine, CMDB, and both its core logic and its HTTP layer) is built and running as its own container. The remediation worker is now a real continuous process too: it polls the queue, claims incidents, and dispatches to whichever of the two Phase 1 playbooks (`restart_service`, `collect_diagnostics`) the CMDB resolved — all fully autonomous, no manual invocation required. The report generator isn't built yet.
+> detect → enrich → acknowledge → remediate → verify → resolve (or escalate) → audit
 
-See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved incident" section for the full flow and the reasoning behind splitting the webhook handler from the remediation worker.
+Phase 1 includes:
 
-## Current status
+* Prometheus, Alertmanager, and Grafana
+* CMDB-driven incident enrichment
+* PostgreSQL-backed incident management
+* Independent webhook ingestion and remediation services
+* Explicit incident state machine
+* Autonomous remediation playbooks
+* Service-specific recovery verification
+* Structured JSON logging
+* Bootstrap, teardown, and chaos tooling
+* CMDB validation
+* Operational runbooks
+* Architecture Decision Records (ADRs)
 
-**Built and verified:**
+Future phases focus on extending the platform rather than completing the core incident response workflow.
 
-- The monitored estate (`nginx`, `api`, `postgres`, `node-exporter`, `cAdvisor`) is up, wired, and tested end-to-end, including a real `api` → Postgres dependency in its health check.
-- Prometheus is scraping the estate; Alertmanager is running and confirmed reachable from it.
-- 6 of 9 alert rules are written and loaded: `ServiceDown`, `HighCPU`, `HighMemory`, `DiskPressure`, `HighErrorRate`, `HighLatency`.
-- Grafana is fully provisioned from files (datasource + an 8-panel dashboard), no UI drift.
-- The webhook ingestion pipeline is built and running as a real container (`webhook-handler`, `docker/webhook-handler/`), verified end-to-end through Docker Compose: Alertmanager posts to it over the compose network, it enriches and dedupes against the CMDB and the data model, and persists a correctly-populated incident in Postgres. Underneath it: the data model (`incidents`, `incident_events`, `remediation_attempts`, with dedupe and history-integrity constraints enforced by the database itself), the state machine (`transition()`, one function every status change goes through), the CMDB (`cmdb/services.yaml`, all 5 services), and `handle_alert()`'s core logic (enrich, resolve the playbook, dedupe, create the incident, escalate unknown services). Design details and reasoning for each are in `docs/implementation-findings.md` and the code itself.
-- The remediation worker's queue claim (`automation/response_engine/worker.py`, `claim_incident()`) is written and verified under real concurrency: `SELECT ... FOR UPDATE SKIP LOCKED` lets multiple workers pull from the same `incidents` queue without ever double-claiming or blocking on each other, confirmed with overlapping transactions and a held row lock, not just sequential calls. Claiming an incident atomically moves it `NEW → ACKNOWLEDGED` via `transition()`, so callers only ever see incidents they genuinely own.
-- Both Phase 1 runbooks are written (`docs/runbooks/service-down.md`, `docs/runbooks/collect-diagnostics.md`), organized by operational response rather than one-per-alert-type since `collect_diagnostics` covers four alerts with an identical automated response — a deliberate, documented deviation from DESIGN.md's wording (`docs/implementation-findings.md`, finding 3). `automation/scripts/validate_cmdb.py` now passes cleanly for the first time this session.
-- Every service in `cmdb/services.yaml` now declares a `verification` strategy (`http` with a URL, `docker-health`, or `running`), so the worker can check whether a restarted service actually recovered without hardcoding service-specific logic — the estate turned out to have no single mechanism that works for all five services (only `api` has an HTTP health endpoint; `postgres` and `cadvisor` have Docker `HEALTHCHECK`s; `nginx` and `node-exporter` have neither). Documented as a real gap in DESIGN.md's "check `/health`" wording (`docs/implementation-findings.md`, finding 4). The new schema field and its validation in `validate_cmdb.py` were confirmed against three deliberately broken CMDB files (missing block, invalid type, missing URL) before being trusted.
-- The remediation worker now runs as its own container (`worker`, `docker/worker/`), with the Docker socket mounted so playbooks can control other containers via the Docker Engine API — unlike cAdvisor's socket mount earlier in this project, this one was tested directly (not assumed) and confirmed working: `docker.from_env()` and `client.containers.list()` succeed from inside the built container. That test also concretely confirmed DESIGN.md's own security note — the socket gives this container visibility into and control over *every* container on the host, not just SentinelOps's own, which is exactly the "administrative control over the host" tradeoff the design document already calls out as lab-only.
-- The `restart_service` playbook (`automation/response_engine/remediation.py`) is fully built and verified against a real container, not just tested in isolation: it restarts the target via the Docker Engine API, polls recovery using whichever verification strategy the CMDB declares, records every attempt in `remediation_attempts`, and drives the incident through `IN_PROGRESS → RESOLVED` on success or `→ ESCALATED` after 2 failed attempts. Proven two ways — stopping and restarting real `nginx` end-to-end (confirmed via the container's actual restart timestamp, not just its reported status) and a missing-container run that correctly escalated after exactly one attempt, no wasted retry. `verify_recovery()` (`verification.py`) — the `http`/`docker-health`/`running` dispatch — was independently tested against all three real services beforehand. Finding this work also caught a real bug in `state_machine.py`: `IN_PROGRESS` was missing `ESCALATED` from its allowed transitions, contradicting DESIGN.md's own original table — a plain transcription error, fixed directly, not logged as a new design deviation.
-- The `collect_diagnostics` playbook (also `remediation.py`) is fully built and verified: unlike `restart_service`, it never restarts anything or retries — it snapshots the last 100 log lines and current container stats from the Docker Engine API, writes them to one JSON file per attempt under a mounted `./diagnostics/` host directory (`diagnostics_path` on the `remediation_attempts` row), and unconditionally drives the incident to `ESCALATED` so a human always sees it. Verified against a real `api` container, including confirming the JSON artifact actually lands on the *host* filesystem, not just inside the container — proving the volume mount, not just the code, is correct. All three failure paths were tested too: a missing container escalates with no file written; a simulated disk-full `OSError` while writing still escalates with the audit trail intact; a simulated Docker Engine `APIError` re-raises and leaves the incident `IN_PROGRESS` rather than pretending it resolved anything. That last test also surfaced a constraint the dispatch loop had to get right: `record_attempt_finish()`'s "record then re-raise" pattern only holds if the caller commits before letting the exception propagate — a bare `with conn:` around the call would silently roll back the failure record along with everything else.
-- The worker is now a real continuous process, not a collection of individually-invoked functions: `worker.py`'s `main()` polls the queue every 5 seconds, calls `claim_incident()` (moved to its own `claim.py` module to avoid a self-import once `worker.py` became the entry point), and dispatches on `incident["playbook"]` to `restart_service` or `collect_diagnostics`. Transaction ownership is explicit and deliberate: a clean iteration commits; a Docker Engine `APIError` still commits (preserving the failure record the playbook already wrote) before sleeping and retrying next poll; any other exception rolls back (returning the incident to `NEW` for a future retry) before sleeping. An unrecognized playbook value raises `RuntimeError` rather than silently doing nothing — CMDB entries that map an alert to a playbook `remediation.py` doesn't implement (or omit a mapping entirely, which resolves to `"none"`) are a configuration bug, not a runtime path to paper over. Verified with the worker container actually running, unattended: two incidents inserted directly into Postgres from outside the container were autonomously claimed and processed back-to-back with zero manual invocation — a `restart_service` incident against real `nginx` (confirmed via restart timestamp, `RESOLVED`) and a `collect_diagnostics` incident against real `api` (`ESCALATED`, JSON artifact confirmed on the host).
-- `validate_cmdb.py` now catches a CMDB entry that maps an alert to a playbook the worker doesn't actually implement — the first row of DESIGN.md's `bootstrap.sh` config-validation table ("Playbook references") with a real, tested implementation behind it. The set of real playbooks (`IMPLEMENTED_PLAYBOOKS`) lives in its own dependency-free module, `automation/response_engine/playbooks.py`, imported by both `remediation.py` and the validator — not defined inside `remediation.py` itself, which was the first attempt and broke on a real, if slightly funny, bug: importing `remediation.py` from the host pulled in the Docker SDK, and this repo has a top-level `docker/` directory (the Compose config folder), which Python's implicit namespace packages let silently shadow the real `docker` package outside any container. `playbooks.py` has no imports at all, so the validator can check CMDB playbook references without needing Docker, `requests`, or any other runtime dependency installed. Confirmed by deliberately setting a CMDB entry's playbook to a nonexistent name and watching the validator report it correctly; that same pass caught a real, pre-existing problem — `postgres`'s CMDB entry mapped `DiskPressure` to `disk_cleanup`, a Phase 2 playbook that doesn't exist yet — removed from the CMDB (with a comment explaining why) rather than exempted from the check, so the validator now passes clean on the actual repository, not just the deliberately broken test case.
-- `validate_cmdb.py` also now covers DESIGN.md's "alert coverage" row ("an alert rule's `service` label has no CMDB entry") — but not as originally worded. The alert rules in `docker/prometheus/rules/alerts.yml` never actually contain a static `service` label; `$labels.job` is a Prometheus template variable resolved only when an alert fires against a live scraped target, so there's nothing in `alerts.yml` itself for a static validator to read. Documented as finding 5 (`docs/implementation-findings.md`): the real static source of service identity is `prometheus.yml`'s `scrape_configs`, so the check became "every configured scrape job has a CMDB entry" instead — the same operational intent (an alert firing for an unrecognized service breaks CMDB enrichment), implemented against the config file that actually has the data. Deliberately one-directional: every CMDB entry having a scrape job is *not* required, since the CMDB is allowed to be ahead of what's currently monitored. The first draft of `load_scrape_jobs()`'s call site had two real bugs, both caught in review before testing: the check was nested inside the per-service loop (so every mismatch was reported once per CMDB service — 5 duplicate lines instead of 1) and an unrelated `else` clause belonging to the `playbooks` check got separated from its own `if`, silently breaking that check's error message. Both fixed, then verified with a deliberately unmapped scrape job — exactly one error, correctly worded — before restoring the file and confirming a clean pass.
-- `bootstrap.sh` (`automation/scripts/bootstrap.sh`) is built and verified against real, running infrastructure, not just read for correctness. It's idempotent — running it against an already-up SentinelOps stack skips host port checks entirely rather than failing, since those ports are legitimately this project's own; running it against a genuinely conflicting port (a stray non-Docker Postgres bound to 5432 on the dev machine, discovered during testing) still fails loudly with the actual `lsof` output attached, not just a bare "port in use" message. Every row of DESIGN.md's config-validation table now delegates to a real tool and was confirmed to actually work: `validate_cmdb.py`, `docker compose config`, and — after two real, testing-caught fixes — `promtool check rules` and `amtool check-config`. Both `prom/prometheus` and `prom/alertmanager`'s images default their `ENTRYPOINT` to the server binary itself, not a shell, so `docker compose run --rm promtool ...` was silently being parsed as an argument to the *Prometheus server*, not a separate command; fixed by routing both through `--entrypoint sh -c '...'` so the container's own shell expands the glob and runs the right binary. `wait_for_health` was rewritten from a `timeout`-wrapped design to a pure-Bash polling loop after discovering `timeout` doesn't ship on macOS by default (no `timeout`, no `gtimeout`) — the exact kind of host-portability gap this project's whole point is to practice catching. `.env` auto-creation now warns explicitly about placeholder credentials rather than silently succeeding.
-- That `bootstrap.sh` testing surfaced a real, previously-undiscovered Phase 1 bug, not a testing artifact: `verify_recovery()`'s `http` branch let `requests.exceptions.ConnectionError` propagate uncaught, unlike every other branch in that function, which already treats expected/transient conditions as `False` rather than crashing (the `docker-health` branch's own comment says as much: "treat as verification failure rather than crashing the worker"). In production terms, this meant *any* real `restart_service()` run against an HTTP-verified service could crash the worker's loop on the very first verification poll — a restarted container needs a moment to bind its port, so an immediate `ConnectionError` right after `container.restart()` isn't an edge case, it's the normal timing. The crash triggered `worker.py`'s outer `except Exception: conn.rollback()`, which correctly reverted the database transaction (the `ACKNOWLEDGED` claim, the attempt record) — but `container.restart()` had already run against the real Docker Engine and isn't something a database rollback can undo, so the incident became claimable again 5 seconds later and the whole cycle repeated. Caught live: a real `ServiceDown` incident against `api` (created when an earlier, unrelated rebuild briefly broke the container) sat in an actual restart loop — confirmed via `docker events`, `RestartCount` staying at `0` (proving these were explicit `.restart()` calls, not Docker's own restart-policy), and the worker's own logs — until fixed. Fix: `requests.get()` now wrapped in `try/except requests.exceptions.RequestException: return False`, matching the pattern the other verification types already used. Rebuilt and confirmed: the same incident resolved cleanly on the next pass, exactly one attempt, `api` stable and `healthy` afterward.
-- `teardown.sh` (`automation/scripts/teardown.sh`) is built and verified against real infrastructure: plain `docker compose down` (idempotent — running it twice against an already-stopped stack is a harmless no-op) preserves the named volume; `--purge` additionally removes it, but only after an interactive confirmation. That confirmation's EOF handling — `if ! IFS= read -r reply; then` — was specifically tested rather than trusted from reading the code, since `read`'s non-zero exit on EOF interacting with `set -e` is an easy place to get subtly wrong; piping empty input in correctly hit the "Cancelled" branch without crashing the script. All four real paths were exercised end-to-end: plain teardown (data survives, confirmed via `docker volume ls`), `--purge` declined explicitly (`N`), `--purge` declined via EOF, and `--purge` confirmed (`y`) — the volume was genuinely destroyed, not just reported as removed, then the stack was rebuilt from scratch via `bootstrap.sh`/`docker compose up` to confirm the schema re-migrates cleanly on a fresh volume. That rebuild also incidentally re-proved `bootstrap.sh`'s port-conflict diagnostic: with SentinelOps genuinely stopped, `check_ports` correctly fell through past the idempotency check and caught the same unrelated host Postgres process on port 5432 found earlier — the two scripts' idempotency logic working correctly together, not just individually.
-- `chaos.sh` (`automation/scripts/chaos.sh`) is built: `stop <service>` validates the service exists in the Compose project (with a helpful list of valid names on failure) before calling `docker compose stop` — chosen deliberately over plain `docker stop`, since it's scoped to the current Compose project, operates on the same service names the CMDB and the rest of the system already use, and doesn't couple the script to container-naming conventions. Structured as a `case "$COMMAND"` so Phase 2 fault types (`kill`, `pause`, `network`) can be added without restructuring.
-- **`chaos.sh stop api` produced a complete, fully autonomous incident lifecycle against the real running system — DESIGN.md's central Phase 1 "Done when" criterion, satisfied for the first time.** No manual step after the chaos command: Prometheus's `api` scrape target went `down` (confirmed via `/api/v1/targets`, real DNS failure since Compose tore down the container's network presence, not a simulated condition), `ServiceDown` correctly sat in `pending` for its full `for: 1m` window before firing (watched live, not assumed), Alertmanager forwarded the webhook, `handle_alert()` enriched it from the CMDB and created `INC-2026-0001`, the worker claimed it, `restart_service()` ran, and `verify_recovery()` succeeded on the first attempt — `NEW → ACKNOWLEDGED → IN_PROGRESS → RESOLVED` in under 2 seconds once the incident was created, exactly one remediation attempt, `api` genuinely serving `200` on `/health` afterward. That clean, single-attempt resolution is a direct, concrete payoff of the `verify_recovery()` `ConnectionError` fix found earlier through `bootstrap.sh` testing — without it, this exact scenario (an immediate post-restart verification poll racing a still-binding port) is precisely the case that used to crash the worker's loop and spin the incident in an endless restart cycle instead of resolving.
-- **DESIGN.md's Phase 1 JSON logging requirement was never actually implemented** — every log line in every container had been plain text (`worker.py`'s `logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s")`) for the entire session, confirmed against real running logs, not a partial gap in one module. Fixed with a small shared module, `automation/response_engine/logging_config.py`: a custom `JsonFormatter` (no external dependency — the schema is small and fixed enough that a ~25-line formatter beats pulling in a library) emitting a stable schema (`timestamp`, `level`, `logger`, `message`, `incident_reference`, `exception`, always present even when `null`) plus an automatically-populated `context` object holding any other `extra=` fields a call site attaches — so existing calls like `handlers.py`'s `"Playbook mismatch"` warning (four fields) that predated this design don't need rewriting to benefit from it. `configure_logging()` is called once at each process's actual entry point: `worker.py`'s `main()`, and `webhook_handler.py`'s *module scope* (not `if __name__ == "__main__":`, since gunicorn imports the module rather than executing it — logging has to be configured wherever the code is guaranteed to run regardless of invocation style). Deliberately rejected a `LoggerAdapter`-based design for propagating the incident reference, since it would have threaded a `logger` parameter through `restart_service()`, `transition()`, and `verify_recovery()`'s signatures — turning logging into part of the remediation API instead of a cross-cutting concern layered on top via `extra={"incident_reference": ...}` at call sites that have an incident in scope. Verified against a real triggered incident: every log line across both `worker` and `webhook-handler` containers parses as valid JSON, `incident_reference` correctly `null` on startup/infrastructure logs and correctly populated on incident-scoped ones.
-- **That same verification pass surfaced a real, pre-existing bug unrelated to logging**: `chaos.sh stop api` run twice against the same service — once before, once after the first incident reached `RESOLVED` — never created a second incident. It silently appended a `NOTE` to the original one instead, because both enforcement points for fingerprint deduplication (`002_incidents.sql`'s partial unique index and `handlers.py`'s dedupe query) scoped "open" as "not `CLOSED`/`SUPPRESSED_MAINTENANCE`," treating `RESOLVED` as still-open — a real ambiguity in DESIGN.md's own wording (`docs/implementation-findings.md`, finding 6), since "non-terminal" and "open" turn out to be different claims the design never actually distinguished. Decided and applied: an incident is open for dedup purposes only while `NEW`, `ACKNOWLEDGED`, `IN_PROGRESS`, or `ESCALATED` — the worker's unit of work (claim → run a playbook → verify → resolve) is complete once `RESOLVED`, so a later alert with the same fingerprint is a new remediation, not a continuation, and Phase 2's MTTR/remediation-success-rate metrics only have an unambiguous meaning if one outage maps to one incident. Fixed at both enforcement points together (comma bug in the SQL `IN (...)` list caught in review before it could silently exempt `IN_PROGRESS`/`ESCALATED` from the constraint entirely), applied via `teardown.sh --purge` + `bootstrap.sh` since `docker/postgres/init/` only runs on a fresh volume, then verified: a second `chaos.sh stop api` after the first incident's `RESOLVED` now correctly produces `INC-2026-0002`, a fully distinct incident with its own complete, uncontaminated event history.
-- **Diagnosing that dedup bug also surfaced a real, intermittent bug in `chaos.sh` itself**: `validate_service()`'s `docker compose config --services | grep -Fxq "$service"` inside `if ! ... ; then` intermittently reported `api` — a real, running service — as unknown, reproduced twice in a row before becoming hard to reproduce further. Root cause traced to this machine's `/bin/bash` being version 3.2.57 (the last GPLv2 release, frozen there by Apple's GPLv3 avoidance since 2007) combined with a timing/buffering interaction between `docker compose config`'s subprocess output and the pipe-into-`grep`-under-negation pattern — not a logic bug in the match condition itself. Rather than keep chasing the exact mechanism on an obsolete shell version, rewrote `validate_service()` to remove the fragile pattern entirely: `docker compose config --services` is now read via `while IFS= read -r candidate; do ... done < <(...)` — no pipe, no `grep`, no external process for the comparison at all. Stress-tested 16 times in a row (8 deliberately bogus service names, 8 real) with zero false results, then exercised repeatedly as a side effect of the dedup re-testing above with no further failures.
-- **`bootstrap.sh --validate-only` confirmed to catch a broken CMDB entry through the actual script invocation, not just `validate_cmdb.py` run directly** — the first of DESIGN.md's two remaining Phase 1 "Done when" checks. `cadvisor`'s `ServiceDown` mapping was deliberately changed to a nonexistent playbook (`restart_everything`); `bootstrap.sh --validate-only` exited `1` with the exact, correctly-worded error (`[cadvisor] alert 'ServiceDown' maps to unknown playbook 'restart_everything'`) and stopped before reaching Compose config, `promtool`, or `amtool` validation — confirmed via `docker compose ps` that all 10 running services were completely untouched by the failed validation run, not just that the script exited non-zero. Restoring the CMDB and re-running produced a clean pass (`CMDB OK (5 services)`) through all four validation stages. Proves the full chain end-to-end: script → `validate_cmdb.py` → correct exit code → no side effects.
-- **The failure-independence check (`chaos.sh stop <service>` against each monitored service) surfaced a real bug in the audit trail, and a real limitation in `docker-health` verification, neither related to the other.** `chaos.sh stop cadvisor` escalated after 2 `restart_service` attempts whose `remediation_attempts` rows showed `started_at` identical to `finished_at` — read literally, that looked like `verify_recovery()` never actually polled. Temporary `logger.info()` instrumentation around `container.restart()` and each poll iteration (added, used for one investigation, then fully removed — confirmed via `git diff`) proved otherwise: `restart()` returned in under half a second, and the poll loop ran normally, once a second, for the entire 30-second budget on both attempts. The identical timestamps were a PostgreSQL behavior, not a bug — `NOW()` is fixed at transaction start and returns the same value on every call for the rest of that transaction (confirmed directly: `SELECT NOW(), NOW(), NOW();` inside one statement returns three identical values), and `restart_service()` runs entirely inside one long-lived transaction. Fixed by switching `remediation_attempts.started_at`/`finished_at` to `clock_timestamp()`, the function PostgreSQL itself documents for measuring real elapsed time within a transaction — verified afterward on a clean incident (`INC-2026-0005`) showing a genuine `10.334077`-second duration instead of two identical values. With the timestamps no longer misleading, the real cause of the original escalation became visible: `cadvisor`'s Docker `HEALTHCHECK` — baked into the upstream `gcr.io/cadvisor/cadvisor:v0.49.1` image, not written by this project — only probes every 30 seconds, so a 30-second verification window can span an entire gap between checks and see a stale status the whole time, even though the container recovered normally. A Compose-level override (5-second interval, matching `postgres`'s own) was built and verified working, then deliberately reverted — there's no `docker/cadvisor/` build context in this repo to attach the override to more cleanly, and a config-only change with no corresponding source file was judged worse than documenting the gap honestly (`docs/implementation-findings.md`, finding 7). The same investigation also incidentally re-confirmed finding 6's dedup behavior was already working correctly under live conditions — three `ServiceDown` firings against the still-`ESCALATED` incident each correctly appended a `NOTE` event rather than creating a new incident, which had briefly looked like a missing-webhook-delivery bug before the dedup logic itself was recognized as the (correct) explanation.
-- **`node-exporter`'s failure-independence test (`INC-2026-0006`) resolved cleanly on the first attempt in `0.181` real seconds** — no escalation, no anomalies, and a useful direct comparison against `cadvisor`'s result: confirmed via `docker inspect` beforehand that `node-exporter` has no Docker `HEALTHCHECK` at all (`Config.Healthcheck: null`), matching its CMDB `running` verification type — `verify_recovery()`'s `running` branch checks `container.status` directly, so there's no probe interval to race by construction, unlike `docker-health`. Same worker, same `restart_service()` logic, same alert pipeline as `cadvisor` — the order-of-magnitude timing difference (fractions of a second vs. up to a minute) is a direct, evidence-backed confirmation that finding 7's `HEALTHCHECK`-interval race is specific to `docker-health`-verified services, not a flaw in `restart_service()` itself. This completes DESIGN.md's failure-independence check for every Prometheus-monitored service: `api` (`http`), `cadvisor` (`docker-health`), `node-exporter` (`running`) — all three genuinely tested through the real pipeline. `nginx` and `postgres` are CMDB entries without a corresponding Prometheus scrape job (finding 5's point, re-encountered in a new context), so `ServiceDown` structurally cannot fire for them; they're out of scope for this specific check by architecture, not overlooked.
+---
 
-**Known gap:**
+# Technologies
 
-- `HighErrorRate`'s ratio only reflects errors caught inside route handlers (`OperationalError`); an unhandled exception that gunicorn turns into a 500 doesn't currently increment either the error or request counter, since request accounting happens inline in each route rather than in Flask middleware. Fixing this means moving metric recording to `after_request`/`teardown_request` so every request is counted regardless of how it ends — not yet done.
-- `cadvisor`'s Docker `HEALTHCHECK` interval (30 seconds, from the upstream image) can race `restart_service`'s 30-second verification timeout for `docker-health`-verified services — a real, reproducible risk under the current configuration, documented in `docs/implementation-findings.md` finding 7 rather than patched around, since fixing it cleanly would mean introducing a new `docker/cadvisor/` build context for a single-line `HEALTHCHECK` override.
+| Category       | Technologies                      |
+| -------------- | --------------------------------- |
+| Monitoring     | Prometheus, Alertmanager, Grafana |
+| Backend        | Python, Flask                     |
+| Database       | PostgreSQL                        |
+| Infrastructure | Docker, Docker Compose            |
+| Automation     | Docker SDK for Python             |
+| Documentation  | Markdown, ADRs                    |
 
-**Not yet built:**
+---
 
-- The remaining 3 alert rules: `ContainerRestartLoop`, `ResponseEngineDown`, `RemediationFailureRateHigh`. The latter two need a response engine that doesn't fully exist yet. `ContainerRestartLoop` is blocked on an environment limitation: cAdvisor here can't reach the Docker daemon, so every cAdvisor metric carries only an anonymous cgroup `id`, with no container name to key an alert on — writing the rule against raw cgroup ids would be both unreadable and unmappable to the `service` labels the rest of the design relies on. Left unwritten on purpose; options for later: mount a working Docker socket, add a small purpose-built exporter, or revisit if the project ever moves to Kubernetes.
-- The report generator.
-- ARCHITECTURE.md, ADRs.
+# Architecture
 
-## Quick Start
+SentinelOps separates monitoring from incident response.
 
-This covers what actually runs today — the monitored estate and the observability stack built so far. There's no incident lifecycle to demonstrate yet, since the response engine doesn't exist.
+The monitoring stack (Prometheus, Alertmanager, and Grafana) is responsible for detecting operational problems and generating alerts. The response engine takes over once an alert is received, enriching it with operational context, managing its lifecycle, attempting automated remediation, and recording a complete audit trail.
 
-### Prerequisites
+The architecture is intentionally divided into three independent layers:
 
-- Docker and Docker Compose
-- `curl` (or a browser) to poke at the running services
+* **Monitored Estate** — the services being observed and managed.
+* **Observability** — Prometheus, Alertmanager, and Grafana, responsible only for collecting metrics, evaluating alert rules, and presenting operational data.
+* **Response Engine** — webhook ingestion and remediation services that transform alerts into incidents and coordinate automated recovery.
 
-### Run it
+Within the response engine, webhook ingestion and remediation are implemented as separate services communicating exclusively through PostgreSQL. This decouples alert acknowledgement from remediation, allowing Alertmanager webhooks to be acknowledged immediately while longer-running recovery operations continue independently.
+
+The complete system architecture, incident lifecycle, and component interaction are documented in:
+
+* `docs/ARCHITECTURE.md`
+* `docs/DESIGN.md`
+* `docs/adr/`
+
+---
+
+# Core Design Principles
+
+Several architectural principles guide the implementation:
+
+* **Alert-driven incident management** — alerts become durable incidents rather than transient webhook requests.
+* **CMDB-driven remediation** — operational policy is defined in configuration, not hard-coded into the response engine.
+* **Explicit incident state machine** — every lifecycle transition is validated and recorded.
+* **Autonomous but bounded remediation** — automated recovery is attempted within clearly defined verification and retry limits before escalation.
+
+These principles are documented in the project's Architecture Decision Records
+(ADRs).
+
+---
+
+# Features
+
+## Monitoring
+
+* Prometheus metrics collection
+* Alertmanager alert routing
+* Grafana dashboards
+* Six production-style alert rules
+
+## Response Engine
+
+* Alert ingestion and CMDB enrichment
+* Fingerprint-based incident deduplication
+* PostgreSQL-backed incident store
+* Concurrent worker coordination using `FOR UPDATE SKIP LOCKED`
+* Explicit incident state machine
+* Structured audit trail
+* Structured JSON logging
+
+## Automated Remediation
+
+Implemented Phase 1 playbooks:
+
+* `restart_service`
+* `collect_diagnostics`
+
+Recovery verification supports:
+
+* HTTP health endpoints
+* Docker `HEALTHCHECK`
+* Container running-state verification
+
+## Operational Tooling
+
+* `bootstrap.sh`
+* `teardown.sh`
+* `chaos.sh`
+* `validate_cmdb.py`
+
+---
+# Documentation
+
+The repository is intentionally split into focused documents. The README provides an overview of the project, while the documents below describe the architecture, design rationale, operational procedures, and engineering decisions in greater detail.
+
+| Document                          | Purpose                                                                                            |
+| --------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `README.md`                       | Project overview and getting started                                                               |
+| `docs/ARCHITECTURE.md`            | System architecture, components, and incident lifecycle                                            |
+| `docs/DESIGN.md`                  | Original design, implementation roadmap, and project scope                                         |
+| `docs/adr/`                       | Architecture Decision Records documenting major design decisions                                   |
+| `docs/runbooks/`                  | Operational procedures for implemented remediation playbooks                                       |
+| `docs/implementation-findings.md` | Engineering discoveries, implementation trade-offs, and lessons learned while building the project |
+
+---
+
+# Quick Start
+
+## Requirements
+
+* Docker
+* Docker Compose
+
+## Clone the repository
 
 ```bash
-git clone <this-repo>
+git clone <repository-url>
 cd SentinelOps
+```
+
+## Configure the environment
+
+Create a local configuration file from the provided template:
+
+```bash
 cp .env.example .env
-# edit .env and set real values for POSTGRES_PASSWORD and GRAFANA_ADMIN_PASSWORD
-# to generate a strong random password for either, run:
-#   openssl rand -base64 24
-docker compose up -d
 ```
 
-### Check it's working
+Adjust any values if required for your environment.
+
+## Validate the environment
+
+Before starting the platform, verify that all prerequisites and configuration are valid:
 
 ```bash
-curl http://localhost:5001/health    # api -> postgres round trip
-curl http://localhost:5001/items     # seeded placeholder data
-curl http://localhost:8081/health    # same thing, through nginx
+./automation/scripts/bootstrap.sh --validate-only
 ```
 
-Prometheus UI: `http://localhost:9090` (check `/targets` — `api`, `node-exporter`, `cadvisor` should all show `UP`).
+This performs validation without creating or modifying any containers.
 
-Alertmanager UI: `http://localhost:9093`.
-
-Grafana UI: `http://localhost:3001` (log in with `admin` and the `GRAFANA_ADMIN_PASSWORD` from your `.env`). The Prometheus datasource and the "SentinelOps: Phase 1" dashboard are both provisioned automatically on first boot.
-
-**If you change `POSTGRES_PASSWORD` in `.env` after the stack has already run once:** Postgres only applies that value when it initializes an empty data directory, so an existing `postgres_data` volume keeps the *old* password even after `.env` changes — `api` will then fail to authenticate with `password authentication failed`. Fix by recreating the volume (`docker compose down` then `docker volume rm sentinelops_postgres_data` then `docker compose up -d`) rather than editing `.env` alone.
-
-### Tear down
+## Start SentinelOps
 
 ```bash
-docker compose down
+./automation/scripts/bootstrap.sh
 ```
 
-## Repository Structure
+The bootstrap script validates the environment, starts the Docker Compose stack, and performs post-start validation checks.
 
+Once the platform is running, the primary interfaces are:
+
+| Service      | URL                   |
+| ------------ | --------------------- |
+| Grafana      | http://localhost:3001 |
+| Prometheus   | http://localhost:9090 |
+| Alertmanager | http://localhost:9093 |
+| API          | http://localhost:5001 |
+
+## Shut down the environment
+
+To stop the platform cleanly:
+
+```bash
+./automation/scripts/teardown.sh
 ```
+
+To stop the platform and remove persistent data:
+
+```bash
+./automation/scripts/teardown.sh --purge
+```
+
+---
+
+# Chaos Testing
+
+SentinelOps includes a lightweight chaos tool for exercising the autonomous incident response pipeline.
+
+For example, stopping the API service:
+
+```bash
+./automation/scripts/chaos.sh stop api
+```
+
+Exercises the complete autonomous incident pipeline:
+
+* Alert generation
+* Alertmanager webhook delivery
+* Incident creation and enrichment
+* Worker claim
+* Automated remediation
+* Recovery verification
+* Resolution or escalation
+
+The chaos tool operates only on services defined in the project's Docker Compose configuration and is intended exclusively for local development and testing.
+
+---
+
+# Repository Structure
+
+```text
 SentinelOps/
-├── README.md
-├── docs/
-│   ├── DESIGN.md
-│   ├── implementation-findings.md
-│   └── runbooks/         service-down.md, collect-diagnostics.md
-├── docker-compose.yml
-├── .env.example
-├── docker/
-│   ├── api/              Flask app, Dockerfile, requirements
-│   ├── webhook-handler/  Dockerfile, requirements (code lives in automation/)
-│   ├── worker/           Dockerfile, requirements (code lives in automation/)
-│   ├── nginx/            reverse proxy config
-│   ├── postgres/init/    schema + seed data, runs on first boot
-│   ├── prometheus/       scrape config, alert rules
-│   ├── alertmanager/     routing config
-│   └── grafana/          provisioning, dashboards
 ├── automation/
-│   ├── response_engine/  state_machine.py, handlers.py, webhook_handler.py, claim.py, remediation.py, verification.py, worker.py
-│   └── scripts/          validate_cmdb.py
-├── cmdb/
-│   └── services.yaml
-└── requirements-dev.txt
+│   ├── response_engine/     # Incident response engine
+│   └── scripts/             # Bootstrap, teardown, chaos and validation tools
+├── cmdb/                    # Service configuration
+├── diagnostics/             # Collected diagnostics
+├── docker/                  # Container definitions and configuration
+├── docs/
+│   ├── adr/                 # Architecture Decision Records
+│   ├── runbooks/            # Operational runbooks
+│   ├── ARCHITECTURE.md
+│   ├── DESIGN.md
+│   └── implementation-findings.md
+├── LICENSE
+├── README.md
+└── docker-compose.yml
 ```
 
-The full target layout — `docs/adr/`, `reports/`, `tests/` — is in `docs/DESIGN.md`'s repository layout section. Those directories don't exist yet; they'll appear as the corresponding pieces get built. (`docs/runbooks/` already exists — see [Runbooks](#runbooks).)
+---
 
-## Incident Lifecycle
+# Security Considerations
 
-Not demonstrable yet — this section will describe the detect → triage → enrich → remediate → verify → document → audit flow once the response engine exists. Until then, see `docs/DESIGN.md`'s "How a fault becomes a resolved incident" section for the intended behavior.
+SentinelOps is intentionally designed as a local engineering lab rather than a production deployment.
 
-## Runbooks
+The remediation worker is granted access to the Docker Engine through `/var/run/docker.sock` so it can inspect containers, restart services, and collect diagnostics. The webhook handler has no Docker Engine access. This separation reduces the privileges exposed to externally reachable components while allowing the worker to perform autonomous remediation.
 
-Two runbooks, following `docs/DESIGN.md`'s format (symptom, detection, automated response, manual verification, escalation):
+Additional Phase 1 simplifications include:
 
-- [`docs/runbooks/service-down.md`](docs/runbooks/service-down.md) — `ServiceDown` → `restart_service`.
-- [`docs/runbooks/collect-diagnostics.md`](docs/runbooks/collect-diagnostics.md) — `HighCPU`, `HighMemory`, `HighErrorRate`, `HighLatency` → `collect_diagnostics`. One runbook rather than four, since all four alerts share the same automated response; see `docs/implementation-findings.md` for why this reads "one per alert type" as "one per operational response."
+* A shared Grafana administrator account configured through `GRAFANA_ADMIN_PASSWORD`.
+* Prometheus and Alertmanager exposed without authentication.
+* Local secrets stored in `.env`, which is excluded from version control.
+* Local-only chaos tooling designed to operate exclusively on this project's Docker Compose stack.
 
-## Security Considerations
+These trade-offs are appropriate for a learning environment but would be replaced in production with least-privilege credentials, authenticated monitoring endpoints, and a restricted interface to the container runtime.
 
-The response engine will need access to the Docker Engine API to restart unhealthy services. Once built, the Docker socket will be mounted directly into the engine container, which effectively gives it administrative control over the host.
+---
 
-This is a deliberate trade-off for a self-contained lab environment, not something to do in production. There, the right approach is:
+# Future Work
 
-- a Docker socket proxy exposing only the endpoints actually needed
-- a scoped automation agent with the minimum privileges required
-- orchestrator-native mechanisms rather than direct daemon access
-- least privilege applied to every automation credential
+Phase 1 establishes the complete autonomous incident response loop. Future phases extend the platform with additional operational capabilities rather than changing its core architecture.
 
-Other lab-only compromises, some already in place: no authentication on Grafana or the health page, credentials supplied through `.env`. `.env` is gitignored, `.env.example` is committed with placeholder values, and `git status` gets checked before every push.
+### Incident Management
 
-`chaos.sh` (not yet built) is an operator tool for fault injection and should never exist on a production host.
+* Maintenance windows
+* SLA tracking
+* Incident reporting
 
-## Design Decisions
+### Automation
 
-Full reasoning, including decisions made and alternatives considered, lives in `docs/DESIGN.md`. Formal ADRs (001, 003, 004, 005, 008 for Phase 1) will live in `docs/adr/` once written. Highlights so far:
+* Additional remediation playbooks
+* Notification integrations
+* Automated testing
 
-- **PostgreSQL, not SQLite** — the handler, worker, and report generator will all read and write concurrently.
-- **`api`'s health check queries Postgres**, rather than just confirming the process is alive — so a database outage produces a genuine, honest failure signal instead of a false "healthy."
-- **`postgres:16-alpine`, not the Debian-based image** — same functionality, meaningfully smaller image, no loss of anything this project uses.
+### Platform
 
-## Future Work
+* ShellCheck integration
+* CI/CD improvements
+* Cloud deployment
 
-See `docs/DESIGN.md`'s Phases and "Later" sections for the full roadmap: Phase 2 (maintenance windows, SLA tracking, PDF reports, `disk_cleanup`), Phase 3 (tests, shellcheck, a clean-machine run-through), and beyond (notifications, cloud deployment, Loki, alert correlation).
+The complete implementation roadmap is documented in `docs/DESIGN.md`.
 
-## License
+---
 
-This project is licensed under the [MIT License](LICENSE) — see the `LICENSE` file at the repository root for the full text.
+# License
+
+This project is licensed under the MIT License.
