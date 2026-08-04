@@ -10,11 +10,13 @@ def verify_recovery(client, container_name: str, verification: dict) -> bool:
     Perform a single recovery verification
 
     Returns:
-        True if the service currently satisfies its configured verification strategy, otherwise False
+        True if verification succeeds.
+        False if verification fails, including transient HTTP/network failures.
 
     Raises:
         docker.errors.NotFound:
-            The configured container does not exist.
+            The target container does not exist.
+
         docker.errors.APIError:
             Docker Engine communication failed.
     """
@@ -48,8 +50,11 @@ def verify_recovery(client, container_name: str, verification: dict) -> bool:
             return False
         return health.get("Status") == "healthy"
 
-    if verification_type == "http":
-        response = requests.get(verification["url"], timeout=5)
+    if verification["type"] == "http":
+        try:
+            response = requests.get(verification["url"], timeout=5)
+        except requests.exceptions.RequestException:
+            return False
         return response.status_code == 200
 
     #
