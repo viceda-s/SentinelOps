@@ -85,7 +85,7 @@
           "refId": "A"
         }
       ],
-      "title": "Monitored Targets",
+      "title": "Monitored Services",
       "type": "stat"
     },
     {
@@ -412,9 +412,9 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "code",
-          "expr": "100 - ((node_filesystem_avail_bytes{fstype!~\"tmpfs|erofs|overlay|squashfs\", mountpoint!~\"/oldroot|/run.*\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|erofs|overlay|squashfs\", mountpoint!~\"/oldroot|/run.*\"}) * 100)",
+          "expr": "100 - ((node_filesystem_avail_bytes{mountpoint=\"/var/lib/docker\"} / node_filesystem_size_bytes{mountpoint=\"/var/lib/docker\"}) * 100)",
           "instant": false,
-          "legendFormat": "__auto",
+          "legendFormat": "{{mountpoint}}",
           "range": true,
           "refId": "A"
         }
@@ -728,6 +728,6 @@
   "timezone": "browser",
   "title": "SentinelOps Operations",
   "uid": "ffu1x7x9ngg00e",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }
