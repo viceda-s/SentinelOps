@@ -65,7 +65,7 @@ def record_attempt_start(conn, incident: dict, playbook: str) -> int:
                 %s,
                 %s,
                 %s,
-                NOW()
+                clock_timestamp()
             )
             """,
             (
@@ -91,7 +91,7 @@ def record_attempt_finish(conn, incident: dict, attempt_number: int, result: str
             """
             UPDATE remediation_attempts
             SET
-                finished_at = NOW(),
+                finished_at = clock_timestamp(),
                 result = %s,
                 diagnostics_path = %s,
                 error = %s

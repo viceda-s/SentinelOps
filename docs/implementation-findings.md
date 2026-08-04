@@ -192,3 +192,93 @@ fingerprint-based deduplication — while its status is `NEW`, `ACKNOWLEDGED`,
 `IN_PROGRESS`, or `ESCALATED`. Once an incident reaches `RESOLVED`, `CLOSED`,
 or `SUPPRESSED_MAINTENANCE`, a subsequent alert with the same fingerprint
 creates a new incident rather than appending to the old one."
+
+## 7. `docker-health` verification can race a slow `HEALTHCHECK` interval, and the audit trail hid it
+
+`chaos.sh stop cadvisor` (2026-08-04) escalated `INC-2026-0003` after exactly 2
+`restart_service` attempts, both recorded with `started_at` identical to
+`finished_at` down to the microsecond and `error: "Verification timed out
+after 30 seconds"`. Read literally, that looked like `verify_recovery()`
+never actually polled — as if the whole 30-second budget were consumed
+before the loop body ran even once, which would point at `container.restart()`
+itself blocking for the full duration.
+
+Live instrumentation (temporary `logger.info()` calls around
+`container.restart()` and each iteration of the verification poll loop,
+removed once the investigation concluded) disproved that directly: a repeat
+test (`INC-2026-0004`) showed `container.restart()` returning in well under
+half a second, the verification deadline starting with the full `30.000s`
+intact, and the poll loop executing normally — once per second, counting down
+correctly — for the entire budget on both attempts. The worker was doing
+real, correct work the whole time; the database just wasn't showing it.
+
+The identical `started_at`/`finished_at` timestamps turned out to be a
+PostgreSQL behavior, not a code bug: `NOW()` (and `CURRENT_TIMESTAMP`) is
+fixed at transaction start and returns the same value on every call for the
+rest of that transaction — confirmed directly (`SELECT NOW(), NOW(), NOW();`
+inside one statement returns three identical values). `record_attempt_start()`
+and `record_attempt_finish()` both wrote `NOW()`, and both calls, along with
+every state transition in between, ran inside the single long-lived
+transaction `restart_service()` operates under (`worker.py` only commits
+after `dispatch()` returns). Every timestamp in `remediation_attempts` was
+therefore frozen at the moment the transaction began, regardless of how much
+real time the playbook actually spent — a genuine defect in the audit trail's
+accuracy, independent of whether the underlying remediation logic was correct.
+
+With the timestamps no longer misleading, the real cause of the original
+escalation became visible: `cadvisor`'s Docker `HEALTHCHECK` — baked into the
+upstream `gcr.io/cadvisor/cadvisor:v0.49.1` image itself, not written by this
+project — probes only every 30 seconds. `verify_recovery()`'s `docker-health`
+branch reads whatever status Docker last recorded; it doesn't trigger a fresh
+probe. A 30-second `VERIFY_TIMEOUT` window checked against a service with a
+30-second (or longer) probe interval can easily span a gap between two
+scheduled checks and see nothing but a stale `starting`/`unhealthy` status the
+entire time, even though the container itself recovered normally. `postgres`,
+the CMDB's other `docker-health` service, never hit this because its own
+`HEALTHCHECK` (defined in `docker-compose.yml`, not an upstream image) already
+runs every 5 seconds.
+
+Fixed: `remediation_attempts.started_at`/`finished_at` now write PostgreSQL's
+`clock_timestamp()` instead of `NOW()` — the function PostgreSQL itself
+documents for measuring real elapsed time within a transaction, since it
+advances on every call rather than freezing at transaction start. State
+transition timestamps (`incidents.acknowledged_at`/`resolved_at`, every
+`incident_events.occurred_at`) were deliberately left on `NOW()`, since those
+correctly represent *when this transaction recorded the change*, not a
+duration.
+
+Not fixed: the `HEALTHCHECK`-interval race itself. `cadvisor`'s upstream
+image bakes in `interval: 30s`, and there's no `docker/cadvisor/` build
+context in this repo to attach a shorter interval to without introducing a
+new Dockerfile for a single-line change — a real tradeoff, not an oversight.
+A Compose-level `healthcheck:` override was built and verified working
+(interval dropped to `5s`, probes confirmed 6x more frequent via
+`docker inspect`), then deliberately reverted in favor of documenting the gap
+rather than adding a config-only override with no corresponding source file
+to explain it. `postgres`'s own `HEALTHCHECK`, by contrast, is legitimately
+defined in `docker-compose.yml` already (not an override of anything), so it
+carries no equivalent burden.
+
+Verified end-to-end (2026-08-04, with the interval override in place): a
+clean `chaos.sh stop cadvisor` run (`INC-2026-0005`, after
+`INC-2026-0003`/`INC-2026-0004` were manually resolved via `transition()` to
+clear the dedup window) resolved on the first attempt in `10.334077` real
+seconds — a genuinely distinct, correct `started_at`/`finished_at` pair —
+with a clean `CREATED → ACKNOWLEDGED → IN_PROGRESS → RESOLVED` trail and no
+escalation. The `clock_timestamp()` fix is confirmed correct independent of
+whether the interval override ships; the interval race remains a live,
+reproducible risk against the current 30-second upstream default.
+
+This investigation also incidentally re-confirmed finding 6's dedup behavior
+under live conditions: three further `ServiceDown` firings for the same
+fingerprint while `INC-2026-0003` sat `ESCALATED` (itself an open state)
+each correctly appended a `NOTE` event ("Duplicate Alertmanager notification
+received") rather than creating a new incident or silently failing — the
+apparent "missing" webhook deliveries chased earlier in the investigation
+were this same correct, working behavior, not a delivery or logging bug.
+
+Proposed DESIGN.md wording: "For services verified via `docker-health`, the
+service's own Docker `HEALTHCHECK` interval must be short relative to
+`restart_service`'s verification timeout, or recovery can go undetected
+until the next scheduled probe. `remediation_attempts` timestamps record
+real elapsed wall-clock time, not transaction-start time."
