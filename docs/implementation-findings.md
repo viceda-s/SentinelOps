@@ -132,3 +132,63 @@ actually models monitored services.
 Proposed DESIGN.md wording: "bootstrap.sh validates that every configured
 Prometheus scrape job has a corresponding CMDB entry before starting the
 stack."
+
+## 6. "Open incident" is undefined, and the code guessed wrong
+
+DESIGN.md says the handler dedupes on the Alertmanager `fingerprint`: "If
+there's already an open incident with that fingerprint, it appends an event
+rather than creating a new incident." It also says the fingerprint uniqueness
+is enforced by the database: "a partial unique index on `fingerprint` where
+the status isn't terminal." Neither sentence defines which states count as
+"open," and the state table's terminal/non-terminal labeling (only `CLOSED`
+and `SUPPRESSED_MAINTENANCE` are marked terminal) doesn't settle it either —
+non-terminal and open are different claims. `RESOLVED` can still transition to
+`CLOSED`, which makes it non-terminal, but that says nothing about whether a
+*fresh* alert with the same fingerprint should reuse a `RESOLVED` incident or
+start a new one.
+
+Both existing enforcement points resolved the ambiguity the same way, by
+accident rather than decision: `002_incidents.sql`'s partial unique index
+(`WHERE status NOT IN ('CLOSED', 'SUPPRESSED_MAINTENANCE')`) and
+`handle_alert()`'s dedupe query used identical scoping, both treating
+`RESOLVED` as still-open. Live testing (2026-08-04, `chaos.sh stop api` run
+twice against the same service, once before and once after the first
+incident reached `RESOLVED`) confirmed the consequence: the second
+`ServiceDown` firing — a genuine new alert, confirmed via Alertmanager's own
+`/api/v2/alerts`, same fingerprint by construction since none of the alert's
+labels changed — produced no new incident. It silently appended a `NOTE`
+event to the original `RESOLVED` incident instead.
+
+Decided: an incident is open for deduplication purposes only while its status
+is `NEW`, `ACKNOWLEDGED`, `IN_PROGRESS`, or `ESCALATED`. `RESOLVED` ends the
+dedup window, the same as `CLOSED` and `SUPPRESSED_MAINTENANCE` already did.
+Reasoning: the worker's unit of work is one incident — claim, run a playbook,
+verify, resolve — and that lifecycle is complete once `RESOLVED` is reached.
+A later alert with the same fingerprint is a new remediation, not a
+continuation of the old one, and Phase 2's MTTR/remediation-success-rate
+metrics only have an unambiguous meaning if one outage maps to one incident.
+`CLOSED` remains a separate, deliberately administrative state (RCA written,
+report generated) — whether an operator has gotten around to documentation
+shouldn't determine whether a fresh outage gets its own incident. Flapping
+(the same fault re-firing within seconds) is a real but separate concern,
+better solved later with Alertmanager's own `for:`/grouping/inhibition or a
+purpose-built correlation window — not by conflating "still open" with "the
+same operational event."
+
+Applied and verified (2026-08-04): both enforcement points were updated
+together — `002_incidents.sql`'s partial unique index now reads `WHERE status
+IN ('NEW', 'ACKNOWLEDGED', 'IN_PROGRESS', 'ESCALATED')`, and `handlers.py`'s
+dedupe query matches exactly. Confirmed by repeating the original test —
+`chaos.sh stop api` run twice against the same service, letting the first
+incident fully reach `RESOLVED` in between — after `teardown.sh --purge` +
+`bootstrap.sh` applied the corrected schema to a fresh volume. The second run
+produced `INC-2026-0002`, a genuinely distinct incident with its own complete
+`CREATED → ACKNOWLEDGED → IN_PROGRESS → RESOLVED` event trail, same
+fingerprint as `INC-2026-0001` by construction, no cross-contamination
+between the two histories.
+
+Proposed DESIGN.md wording: "An incident is open — eligible for
+fingerprint-based deduplication — while its status is `NEW`, `ACKNOWLEDGED`,
+`IN_PROGRESS`, or `ESCALATED`. Once an incident reaches `RESOLVED`, `CLOSED`,
+or `SUPPRESSED_MAINTENANCE`, a subsequent alert with the same fingerprint
+creates a new incident rather than appending to the old one."

@@ -9,15 +9,17 @@ import psycopg2
 import psycopg2.extras
 import yaml
 
+from .claim import claim_incident
+from .logging_config import configure_logging
 from .remediation import (
     collect_diagnostics,
     restart_service,
 )
-from .claim import claim_incident
 
 POLL_INTERVAL = 5
 
 logger = logging.getLogger(__name__)
+
 
 def get_connection():
     """
@@ -37,16 +39,17 @@ def get_connection():
 
 
 def load_cmdb() -> dict:
-    """ Load the CMDB. """
+    """Load the CMDB."""
 
     with open("/app/cmdb/services.yaml", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
 def dispatch(conn, client, incident: dict, cmdb: dict) -> None:
-    """ Execute the playbook associated with an incident. """
+    """Execute the playbook associated with an incident."""
 
     playbook = incident["playbook"]
+
     if playbook == "restart_service":
         restart_service(
             conn,
@@ -54,6 +57,7 @@ def dispatch(conn, client, incident: dict, cmdb: dict) -> None:
             incident,
             cmdb,
         )
+
     elif playbook == "collect_diagnostics":
         collect_diagnostics(
             conn,
@@ -61,15 +65,16 @@ def dispatch(conn, client, incident: dict, cmdb: dict) -> None:
             incident,
             cmdb,
         )
+
     else:
-        raise RuntimeError(f"Unknown playbook '{playbook}' for incident {incident['reference']}.")
+        raise RuntimeError(
+            f"Unknown playbook '{playbook}' "
+            f"for incident {incident['reference']}."
+        )
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s"
-    )
+    configure_logging()
 
     cmdb = load_cmdb()
     client = docker.from_env()
@@ -78,8 +83,12 @@ def main() -> None:
     logger.info("Remediation worker started.")
 
     while True:
+
+        incident = None
+
         try:
             incident = claim_incident(conn)
+
             if incident is None:
                 conn.commit()
                 time.sleep(POLL_INTERVAL)
@@ -89,6 +98,9 @@ def main() -> None:
                 "Claimed incident %s (%s)",
                 incident["reference"],
                 incident["playbook"],
+                extra={
+                    "incident_reference": incident["reference"],
+                },
             )
 
             dispatch(
@@ -101,27 +113,50 @@ def main() -> None:
             conn.commit()
 
         #
-        # Infrastructure failures:
+        # Infrastructure failures.
         #
-        # restart_service()/collect_diagnostics() already recorded the failed remediation attempt.
-        # Commit that audit trail before continuing.
+        # restart_service()/collect_diagnostics() already recorded
+        # the failed remediation attempt.
         #
 
         except docker.errors.APIError:
             conn.commit()
-            logger.exception("Docker Engine communication failed.")
+
+            logger.exception(
+                "Docker Engine communication failed.",
+                extra={
+                    "incident_reference": (
+                        incident["reference"]
+                        if incident is not None
+                        else None
+                    ),
+                },
+            )
+
             time.sleep(POLL_INTERVAL)
 
         #
         # Unexpected programming/configuration errors.
         #
-        # Roll back the transaction so the incident returns to NEW and can be retried.
+        # Roll back so the incident returns to NEW.
         #
 
         except Exception:
             conn.rollback()
-            logger.exception("Worker iteration failed.")
+
+            logger.exception(
+                "Worker iteration failed.",
+                extra={
+                    "incident_reference": (
+                        incident["reference"]
+                        if incident is not None
+                        else None
+                    ),
+                },
+            )
+
             time.sleep(POLL_INTERVAL)
+
 
 if __name__ == "__main__":
     main()

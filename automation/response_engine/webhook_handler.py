@@ -11,6 +11,14 @@ from psycopg2.extras import RealDictCursor
 from werkzeug.exceptions import BadRequest, UnsupportedMediaType
 
 from .handlers import handle_alert
+from .logging_config import configure_logging
+
+#
+# Gunicorn imports this module rather than executing __main__,
+# so logging must be configured at import time.
+#
+
+configure_logging()
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +43,7 @@ def get_connection():
     """
     Return a new PostgreSQL connection.
 
-    Connections are request-scoped. psycopg2 connections are not safe to share across concurrent requests.
+    Connections are request-scoped.
     """
 
     return psycopg2.connect(
@@ -47,6 +55,7 @@ def get_connection():
         cursor_factory=RealDictCursor,
     )
 
+
 @app.post("/alerts")
 def alerts():
     """
@@ -56,7 +65,7 @@ def alerts():
 
         200  Alert(s) successfully persisted.
         400  Malformed payload.
-        500  Internal error (ALertmanager should retry).
+        500  Internal error (Alertmanager should retry).
     """
 
     try:
@@ -86,7 +95,12 @@ def alerts():
 
         return "", 200
 
-    except (KeyError, TypeError, BadRequest, UnsupportedMediaType):
+    except (
+        KeyError,
+        TypeError,
+        BadRequest,
+        UnsupportedMediaType,
+    ):
         logger.warning(
             "Malformed Alertmanager payload.",
             exc_info=True,
@@ -97,14 +111,14 @@ def alerts():
         ), 400
 
     except Exception:
-        logger.error(
+        logger.exception(
             "Failed to process Alertmanager webhook.",
-            exc_info=True,
         )
 
         return jsonify(
             error="Internal server error.",
         ), 500
+
 
 if __name__ == "__main__":
     app.run(

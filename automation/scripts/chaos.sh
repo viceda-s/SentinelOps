@@ -38,14 +38,20 @@ check_compose() {
 validate_service() {
 
     local service="$1"
+    local candidate
 
-    if ! docker compose config --services | grep -Fxq "$service"; then
-        echo "Unknown service: $service"
-        echo
-        echo "Available services:"
-        docker compose config --services
-        exit 1
-    fi
+    while IFS= read -r candidate; do
+        if [[ "$candidate" == "$service" ]]; then
+            return
+        fi
+    done < <(docker compose config --services)
+
+    echo "Unknown service: $service"
+    echo
+    echo "Available services:"
+    docker compose config --services
+
+    exit 1
 }
 
 stop_service() {

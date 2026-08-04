@@ -39,7 +39,7 @@ def transition(conn, incident, to_status, actor, message):
         logger.warning(
             "Rejected transition",
             extra={
-                "incident": incident["reference"],
+                "incident_reference": incident["reference"],
                 "from_status": current_status,
                 "to_status": to_status,
                 "actor": actor,

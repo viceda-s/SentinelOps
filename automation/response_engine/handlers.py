@@ -203,9 +203,11 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
                 SELECT *
                 FROM incidents
                 WHERE fingerprint = %s
-                    AND status NOT IN (
-                        'CLOSED',
-                        'SUPPRESSED_MAINTENANCE'
+                    AND status IN (
+                        'NEW',
+                        'ACKNOWLEDGED',
+                        'IN_PROGRESS',
+                        'ESCALATED'
                     )
                 """,
                 (fingerprint,)
@@ -214,7 +216,7 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
             incident = cur.fetchone()
 
             if incident is None:
-                raise RuntimeError(f"UniqueViolation occurred but no active incident exists for fingerprin {fingerprint!r}.")
+                raise RuntimeError(f"Cannot resolve incident: no active incident exists for fingerprint {fingerprint!r}")
 
             cur.execute(
                 """
