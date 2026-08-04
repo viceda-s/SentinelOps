@@ -25,6 +25,7 @@ REQUIRED_KEYS = (
     "criticality",
     "runbook",
     "sla",
+    "verification",
 )
 REQUIRED_SLA_KEYS = ("response_minutes", "resolution_minutes")
 
@@ -39,6 +40,12 @@ KNOWN_PLAYBOOKS = {
 }
 
 VALID_CRITICALITY = {"high", "medium", "low"}
+
+VALID_VERIFICATION_TYPES = {
+    "http",
+    "docker-health",
+    "running",
+}
 
 
 class CmdbError(Exception):
@@ -142,6 +149,24 @@ def validate(cmdb: dict) -> list[str]:
                     errors.append(f"[{name}] sla.{key} should be a number")
         elif sla is not None:
             errors.append(f"[{name}] sla should be a mapping")
+
+        verification = svc.get("verification")
+        if isinstance(verification, dict):
+            verification_type = verification.get("type")
+            if verification_type not in VALID_VERIFICATION_TYPES:
+                errors.append(
+                    f"[{name}] verification.type '{verification_type}' should be one of {', '.join(sorted(VALID_VERIFICATION_TYPES))}"
+                )
+            if verification_type == "http":
+                url = verification.get("url")
+                if not isinstance(url, str) or not url.strip():
+                    errors.append(
+                        f"[{name}] verification.type 'http' requires a non empty 'url'"
+                    )
+        elif verification is not None:
+            errors.append(
+                f"[{name}] verification should be a mapping"
+            )
 
         playbooks = svc.get("playbooks") or {}
         if isinstance(playbooks, dict):

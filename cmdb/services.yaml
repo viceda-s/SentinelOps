@@ -1,18 +1,4 @@
 services:
-  nginx:
-    container_name: sentinelops-nginx
-    owner: platform-team
-    escalation_contact: platform-oncall@email.local
-    tier: prod
-    criticality: medium
-    runbook: docs/runbooks/service-down.md
-    playbooks:
-      ServiceDown: restart_service
-      ContainerRestartLoop: collect_diagnostics
-    sla:
-      response_minutes: 10
-      resolution_minutes: 60
-
   api:
     container_name: sentinelops-api
     owner: backend-team
@@ -20,6 +6,9 @@ services:
     tier: prod
     criticality: high
     runbook: docs/runbooks/service-down.md
+    verification:
+      type: http
+      url: http://api:5000/health
     playbooks:
       ServiceDown: restart_service
       ContainerRestartLoop: collect_diagnostics
@@ -33,21 +22,35 @@ services:
     dependencies:
       - postgres
 
-  postgres:
-    container_name: sentinelops-postgres
-    owner: database-team
-    escalation_contact: database-oncall@email.local
+  cadvisor:
+    container_name: sentinelops-cadvisor
+    owner: platform-team
+    escalation_contact: platform-oncall@email.local
     tier: prod
-    criticality: high
+    criticality: medium
     runbook: docs/runbooks/service-down.md
+    verification:
+      type: docker-health
+    playbooks:
+      ServiceDown: restart_service
+    sla:
+      response_minutes: 15
+      resolution_minutes: 60
+
+  nginx:
+    container_name: sentinelops-nginx
+    owner: platform-team
+    escalation_contact: platform-oncall@email.local
+    tier: prod
+    criticality: medium
+    runbook: docs/runbooks/service-down.md
+    verification:
+      type: running
     playbooks:
       ServiceDown: restart_service
       ContainerRestartLoop: collect_diagnostics
-      DiskPressure: disk_cleanup
-      HighCPU: collect_diagnostics
-      HighMemory: collect_diagnostics
     sla:
-      response_minutes: 5
+      response_minutes: 10
       resolution_minutes: 60
 
   node-exporter:
@@ -57,21 +60,29 @@ services:
     tier: prod
     criticality: medium
     runbook: docs/runbooks/service-down.md
+    verification:
+      type: running
     playbooks:
       ServiceDown: restart_service
     sla:
       response_minutes: 15
       resolution_minutes: 60
 
-  cadvisor:
-    container_name: sentinelops-cadvisor
-    owner: platform-team
-    escalation_contact: platform-oncall@email.local
+  postgres:
+    container_name: sentinelops-postgres
+    owner: database-team
+    escalation_contact: database-oncall@email.local
     tier: prod
-    criticality: medium
+    criticality: high
     runbook: docs/runbooks/service-down.md
+    verification:
+      type: docker-health
     playbooks:
       ServiceDown: restart_service
+      ContainerRestartLoop: collect_diagnostics
+      DiskPressure: disk_cleanup
+      HighCPU: collect_diagnostics
+      HighMemory: collect_diagnostics
     sla:
-      response_minutes: 15
+      response_minutes: 5
       resolution_minutes: 60

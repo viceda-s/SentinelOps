@@ -72,3 +72,40 @@ Not fixed now — this needs either a `runbook:` per playbook (mirroring how
 combines the fired alert's playbook with a playbook-to-runbook table
 elsewhere. Left as a known gap rather than a quick patch, since the CMDB
 schema change affects `validate_cmdb.py` and every existing entry.
+
+## 4. Recovery verification is service-specific operational metadata
+
+DESIGN.md describes the `restart_service` playbook as "check container exists,
+restart, wait, check `/health`, max 2 attempts with a cooldown." Building the
+worker against the real monitored estate showed that no single verification
+mechanism exists across all services:
+
+- `api` exposes an HTTP `/health` endpoint but has no Docker `HEALTHCHECK`.
+- `postgres` and `cadvisor` expose Docker `HEALTHCHECK`s.
+- `nginx` and `node-exporter` expose neither, leaving only the container's
+  running state as a generic signal.
+
+Treating "check `/health`" literally would require the worker to grow
+service-specific knowledge ("if service == api ..."), which contradicts the
+CMDB's purpose of keeping operational metadata out of the response engine.
+Falling back to "container is running" for every service would also weaken
+verification for `api`, where an application-level health endpoint already
+exists and can distinguish a healthy service from a merely running process.
+
+The solution is to make recovery verification explicit CMDB metadata, alongside
+ownership, criticality and playbook mappings. Each service declares one
+verification strategy:
+
+- `http` with a URL (for `api`)
+- `docker-health` (for `postgres` and `cadvisor`)
+- `running` (for `nginx` and `node-exporter`)
+
+The worker dispatches verification based on that metadata rather than the
+service name, keeping the playbook generic while accurately reflecting the
+capabilities of each monitored service.
+
+This requires a CMDB schema extension (`verification:`), corresponding
+validation in `validate_cmdb.py`, and updates to every existing service entry.
+Applied in Phase 1 because the design's single "`/health`" step could not
+describe the real monitored estate without either hardcoded exceptions or
+incorrect recovery verification.
