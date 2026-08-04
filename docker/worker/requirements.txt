@@ -1,0 +1,9 @@
+# Runtime dependencies for the worker service container.
+# Pinned so a rebuild months from now can't silently pull a breaking release.
+#
+# Check these are still current before you commit them the first time:
+#   pip index versions <dependency>
+
+psycopg2-binary==2.9.12
+PyYAML==6.0.3
+docker==7.2.0

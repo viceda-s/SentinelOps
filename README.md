@@ -32,6 +32,7 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 - The remediation worker's queue claim (`automation/response_engine/worker.py`, `claim_incident()`) is written and verified under real concurrency: `SELECT ... FOR UPDATE SKIP LOCKED` lets multiple workers pull from the same `incidents` queue without ever double-claiming or blocking on each other, confirmed with overlapping transactions and a held row lock, not just sequential calls. Claiming an incident atomically moves it `NEW → ACKNOWLEDGED` via `transition()`, so callers only ever see incidents they genuinely own.
 - Both Phase 1 runbooks are written (`docs/runbooks/service-down.md`, `docs/runbooks/collect-diagnostics.md`), organized by operational response rather than one-per-alert-type since `collect_diagnostics` covers four alerts with an identical automated response — a deliberate, documented deviation from DESIGN.md's wording (`docs/implementation-findings.md`, finding 3). `automation/scripts/validate_cmdb.py` now passes cleanly for the first time this session.
 - Every service in `cmdb/services.yaml` now declares a `verification` strategy (`http` with a URL, `docker-health`, or `running`), so the worker can check whether a restarted service actually recovered without hardcoding service-specific logic — the estate turned out to have no single mechanism that works for all five services (only `api` has an HTTP health endpoint; `postgres` and `cadvisor` have Docker `HEALTHCHECK`s; `nginx` and `node-exporter` have neither). Documented as a real gap in DESIGN.md's "check `/health`" wording (`docs/implementation-findings.md`, finding 4). The new schema field and its validation in `validate_cmdb.py` were confirmed against three deliberately broken CMDB files (missing block, invalid type, missing URL) before being trusted.
+- The remediation worker now runs as its own container (`worker`, `docker/worker/`), with the Docker socket mounted so playbooks can control other containers via the Docker Engine API — unlike cAdvisor's socket mount earlier in this project, this one was tested directly (not assumed) and confirmed working: `docker.from_env()` and `client.containers.list()` succeed from inside the built container. That test also concretely confirmed DESIGN.md's own security note — the socket gives this container visibility into and control over *every* container on the host, not just SentinelOps's own, which is exactly the "administrative control over the host" tradeoff the design document already calls out as lab-only. `worker.py` itself still only has `claim_incident()`; there's no polling loop or playbook dispatch yet.
 
 **Known gap:**
 
@@ -40,7 +41,7 @@ See `docs/DESIGN.md`'s architecture diagram and "How a fault becomes a resolved 
 **Not yet built:**
 
 - The remaining 3 alert rules: `ContainerRestartLoop`, `ResponseEngineDown`, `RemediationFailureRateHigh`. The latter two need a response engine that doesn't fully exist yet. `ContainerRestartLoop` is blocked on an environment limitation: cAdvisor here can't reach the Docker daemon, so every cAdvisor metric carries only an anonymous cgroup `id`, with no container name to key an alert on — writing the rule against raw cgroup ids would be both unreadable and unmappable to the `service` labels the rest of the design relies on. Left unwritten on purpose; options for later: mount a working Docker socket, add a small purpose-built exporter, or revisit if the project ever moves to Kubernetes.
-- The rest of the remediation worker: playbook dispatch (`restart_service`, `collect_diagnostics`), talking to the Docker Engine API, recording `remediation_attempts`, and the verify step (`RESOLVED`/`ESCALATED`). The report generator.
+- The rest of the remediation worker: the polling loop, playbook dispatch (`restart_service`, `collect_diagnostics`), recording `remediation_attempts`, and the verify step (`RESOLVED`/`ESCALATED`). The Docker Engine API connection itself is already proven working — see above. The report generator.
 - `bootstrap.sh`, `teardown.sh`, `chaos.sh`, ARCHITECTURE.md, ADRs.
 
 ## Quick Start
@@ -93,19 +94,21 @@ SentinelOps/
 ├── README.md
 ├── docs/
 │   ├── DESIGN.md
-│   └── implementation-findings.md
+│   ├── implementation-findings.md
+│   └── runbooks/         service-down.md, collect-diagnostics.md
 ├── docker-compose.yml
 ├── .env.example
 ├── docker/
 │   ├── api/              Flask app, Dockerfile, requirements
 │   ├── webhook-handler/  Dockerfile, requirements (code lives in automation/)
+│   ├── worker/           Dockerfile, requirements (code lives in automation/)
 │   ├── nginx/            reverse proxy config
 │   ├── postgres/init/    schema + seed data, runs on first boot
 │   ├── prometheus/       scrape config, alert rules
 │   ├── alertmanager/     routing config
 │   └── grafana/          provisioning, dashboards
 ├── automation/
-│   ├── response_engine/  state_machine.py, handlers.py, webhook_handler.py
+│   ├── response_engine/  state_machine.py, handlers.py, webhook_handler.py, worker.py
 │   └── scripts/          validate_cmdb.py
 ├── cmdb/
 │   └── services.yaml
