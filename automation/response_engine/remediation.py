@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import time
-
 import docker
+import json
 
 from .state_machine import transition
 from .verification import verify_recovery
+
+from datetime import datetime, timezone
+from pathlib import Path
+
 
 VERIFY_TIMEOUT = 30
 VERIFY_INTERVAL = 1
 RESTART_COOLDOWN = 5
 MAX_RESTART_ATTEMPTS = 2
+DIAGNOSTICS_DIR = Path("/app/diagnostics")
 
 def record_attempt_start(conn, incident: dict, playbook: str) -> int:
     """
@@ -70,6 +75,7 @@ def record_attempt_start(conn, incident: dict, playbook: str) -> int:
 
     return attempt_number
 
+
 def record_attempt_finish(conn, incident: dict, attempt_number: int, result: str, *, diagnostics_path: str | None = None, error: str | None = None) -> None:
     """
     Complete an existing remediation attempt
@@ -106,6 +112,7 @@ def record_attempt_finish(conn, incident: dict, attempt_number: int, result: str
         if cur.rowcount != 1:
             raise RuntimeError(f"Attempt {attempt_number} does not exist for incident {incident['reference']}")
 
+
 def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
     """
     Execute the restart_service playbook
@@ -114,7 +121,14 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
     This function MUST NOT call commit() or rollback()
     """
 
-    incident = transition(conn, incident, "IN_PROGRESS", "worker", "Starting restart_service playbook")
+    incident = transition(
+        conn,
+        incident,
+        "IN_PROGRESS",
+        "worker",
+        "Starting restart_service playbook"
+    )
+
     service = cmdb["services"][incident["service"]]
     container_name = service["container_name"]
     verification = service["verification"]
@@ -133,6 +147,7 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
 
             try:
                 container = client.containers.get(container_name)
+
             except docker.errors.NotFound as e:
                 record_attempt_finish(
                     conn,
@@ -141,7 +156,7 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
                     result="failure",
                     error=str(e),
                 )
-                transition(
+                incident = transition(
                     conn,
                     incident,
                     "ESCALATED",
@@ -160,7 +175,7 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
             # Poll until recovery or timeout
             #
 
-            deadline = (time.monotonic() + VERIFY_TIMEOUT)
+            deadline = time.monotonic() + VERIFY_TIMEOUT
             while time.monotonic() < deadline:
                 if verify_recovery(
                     client,
@@ -197,8 +212,7 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
                 error=(f"Verification timed out after {VERIFY_TIMEOUT} seconds"),
             )
         #
-        # Docker Engine failures are infrastructure failures.
-        # Record the failed attempt, then propagate the error.
+        # Docker Engine failures are infrastructure failures, not remediation outcomes. Record the failed attempt so the audit trail stays complete, then propagate the exception to the worker.
         #
 
         except docker.errors.APIError as e:
@@ -214,10 +228,135 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
         if attempt < MAX_RESTART_ATTEMPTS:
             time.sleep(RESTART_COOLDOWN)
 
-    transition(
+    incident = transition(
         conn,
         incident,
         "ESCALATED",
         "worker",
         f"Service did not recover after {MAX_RESTART_ATTEMPTS} restart attempts."
     )
+
+
+def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
+    """
+    Execute the collect_diagnostics playbook
+
+    The caller owns the transaction.
+    This function MUST NOT call commit() or rollback()
+    """
+
+    incident = transition(
+        conn,
+        incident,
+        "IN_PROGRESS",
+        "worker",
+        "Starting collect_diagnostics playbook"
+    )
+
+    service = cmdb["services"][incident["service"]]
+    container_name = service["container_name"]
+    attempt_number = record_attempt_start(
+                conn,
+                incident,
+                "collect_diagnostics",
+    )
+
+    try:
+        #
+        # 1. Container must exist
+        #
+
+        try:
+            container = client.containers.get(container_name)
+
+        except docker.errors.NotFound as e:
+            record_attempt_finish(
+                conn,
+                incident,
+                attempt_number,
+                result="failure",
+                error=str(e),
+            )
+            incident = transition(
+                conn,
+                incident,
+                "ESCALATED",
+                "worker",
+                "Container not found during diagnostics collection",
+            )
+            return
+
+        #
+        # Collect diagnostics.
+        #
+
+        logs = container.logs(tail=100).decode("utf-8", errors="replace")
+
+        stats = container.stats(stream=False)
+
+        diagnostics = {
+            "incident": incident["reference"],
+            "service": incident["service"],
+            "container": container_name,
+            "collected_at": datetime.now(timezone.utc).isoformat(),
+            "logs": logs,
+            "stats": stats,
+        }
+
+        DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
+
+        diagnostics_path = DIAGNOSTICS_DIR / f"{incident['reference']}-attempt-{attempt_number}.json"
+        with diagnostics_path.open("w", encoding="utf-8") as f:
+            json.dump(diagnostics, f, indent=2)
+
+        record_attempt_finish(
+            conn,
+            incident,
+            attempt_number,
+            result="success",
+            diagnostics_path=str(diagnostics_path),
+        )
+        incident = transition(
+            conn,
+            incident,
+            "ESCALATED",
+            "worker",
+            "Diagnostics collected.",
+        )
+        return
+
+    #
+    # Docker Engine failures are infrastructure failures, not remediation outcomes. Record the failed attempt so the audit trail stays complete, then propagate the exception to the worker.
+    #
+
+    except docker.errors.APIError as e:
+        record_attempt_finish(
+            conn,
+            incident,
+            attempt_number,
+            result="failure",
+            error=str(e),
+        )
+        raise
+
+    #
+    # Diagnostics could not be persisted.
+    # Escalate anyway so an operator is notified.
+    #
+
+    except OSError as e:
+        record_attempt_finish(
+            conn,
+            incident,
+            attempt_number,
+            result="failure",
+            error=str(e),
+        )
+
+        incident = transition(
+            conn,
+            incident,
+            "ESCALATED",
+            "worker",
+            "Failed to persist diagnostics"
+        )
