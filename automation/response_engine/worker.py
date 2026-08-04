@@ -1,42 +1,127 @@
 from __future__ import annotations
 
-from .state_machine import transition
+import logging
+import os
+import time
 
+import docker
+import psycopg2
+import psycopg2.extras
+import yaml
 
-def claim_incident(conn) -> dict | None:
+from .remediation import (
+    collect_diagnostics,
+    restart_service,
+)
+from .claim import claim_incident
+
+POLL_INTERVAL = 5
+
+logger = logging.getLogger(__name__)
+
+def get_connection():
     """
-    Claim the oldest NEW incident.
+    Create a PostgreSQL connection.
 
-    The caller owns the transaction.
-    This function MUST NOT call commit() or rollback()
-
-    Returns:
-        The claimed incident (now ACKNOWLEDGED), or None if no claimable incidents exist.
+    The worker owns the connection for its lifetime.
     """
 
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT *
-            FROM incidents
-            WHERE status = 'NEW'
-            ORDER BY detected_at
-            FOR UPDATE SKIP LOCKED
-            LIMIT 1
-            """
-        )
+    return psycopg2.connect(
+        host=os.getenv("POSTGRES_HOST", "postgres"),
+        port=int(os.getenv("POSTGRES_PORT", "5432")),
+        user=os.environ["POSTGRES_USER"],
+        password=os.environ["POSTGRES_PASSWORD"],
+        dbname=os.getenv("POSTGRES_DB", "postgres"),
+        cursor_factory=psycopg2.extras.RealDictCursor,
+    )
 
-        incident = cur.fetchone()
 
-        if incident is None:
-            return None
+def load_cmdb() -> dict:
+    """ Load the CMDB. """
 
-        incident = transition(
+    with open("/app/cmdb/services.yaml", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def dispatch(conn, client, incident: dict, cmdb: dict) -> None:
+    """ Execute the playbook associated with an incident. """
+
+    playbook = incident["playbook"]
+    if playbook == "restart_service":
+        restart_service(
             conn,
+            client,
             incident,
-            "ACKNOWLEDGED",
-            "worker",
-            "Incident claimed by worker",
+            cmdb,
         )
+    elif playbook == "collect_diagnostics":
+        collect_diagnostics(
+            conn,
+            client,
+            incident,
+            cmdb,
+        )
+    else:
+        raise RuntimeError(f"Unknown playbook '{playbook}' for incident {incident['reference']}.")
 
-        return incident
+
+def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s"
+    )
+
+    cmdb = load_cmdb()
+    client = docker.from_env()
+    conn = get_connection()
+
+    logger.info("Remediation worker started.")
+
+    while True:
+        try:
+            incident = claim_incident(conn)
+            if incident is None:
+                conn.commit()
+                time.sleep(POLL_INTERVAL)
+                continue
+
+            logger.info(
+                "Claimed incident %s (%s)",
+                incident["reference"],
+                incident["playbook"],
+            )
+
+            dispatch(
+                conn,
+                client,
+                incident,
+                cmdb,
+            )
+
+            conn.commit()
+
+        #
+        # Infrastructure failures:
+        #
+        # restart_service()/collect_diagnostics() already recorded the failed remediation attempt.
+        # Commit that audit trail before continuing.
+        #
+
+        except docker.errors.APIError:
+            conn.commit()
+            logger.exception("Docker Engine communication failed.")
+            time.sleep(POLL_INTERVAL)
+
+        #
+        # Unexpected programming/configuration errors.
+        #
+        # Roll back the transaction so the incident returns to NEW and can be retried.
+        #
+
+        except Exception:
+            conn.rollback()
+            logger.exception("Worker iteration failed.")
+            time.sleep(POLL_INTERVAL)
+
+if __name__ == "__main__":
+    main()
