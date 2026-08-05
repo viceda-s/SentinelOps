@@ -137,6 +137,8 @@ The repository is intentionally split into focused documents. The README provide
 | `docs/runbooks/`                  | Operational procedures for implemented remediation playbooks                                       |
 | `docs/implementation-findings.md` | Engineering discoveries, implementation trade-offs, and lessons learned while building the project |
 
+`docs/DESIGN.md` was reconciled to v1.1 after Phase 1 shipped, folding in discoveries recorded in `docs/implementation-findings.md`; see `CHANGELOG.md` for a summary.
+
 ---
 
 # Quick Start
