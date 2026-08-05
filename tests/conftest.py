@@ -8,6 +8,17 @@ import psycopg2
 import pytest
 from psycopg2.extras import Json, RealDictCursor
 
+
+def required_env(name: str) -> str:
+    """Return the value of a required environment variable or fail fast with an helpful error."""
+    value = os.environ.get(name)
+    if not value:
+        raise RuntimeError(
+            f"{name} is not set. Run tests via ./automation/scripts/test.sh or load .env first."
+        )
+    return value
+
+
 _reference_counter = itertools.count(1)
 
 
@@ -16,9 +27,9 @@ def db_connection():
     conn = psycopg2.connect(
         host=os.environ.get("POSTGRES_HOST", "localhost"),
         port=int(os.environ.get("POSTGRES_PORT", "5432")),
-        dbname=os.environ.get("POSTGRES_DB", "sentinelops"),
-        user=os.environ.get("POSTGRES_USER", "sentinelops"),
-        password=os.environ.get("POSTGRES_PASSWORD", "sentinelops"),
+        dbname=required_env("POSTGRES_DB"),
+        user=required_env("POSTGRES_USER"),
+        password=required_env("POSTGRES_PASSWORD"),
         cursor_factory=RealDictCursor,
     )
 
