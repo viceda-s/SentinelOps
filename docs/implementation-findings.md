@@ -282,3 +282,65 @@ service's own Docker `HEALTHCHECK` interval must be short relative to
 `restart_service`'s verification timeout, or recovery can go undetected
 until the next scheduled probe. `remediation_attempts` timestamps record
 real elapsed wall-clock time, not transaction-start time."
+
+## 8. The JSON logging schema evolved away from DESIGN.md's fixed `event`/`component` vocabulary
+
+DESIGN.md specifies that every log line carries `component` and `event`
+fields, with `event` drawn from a fixed vocabulary (`alert_received`,
+`incident_created`, `state_transition`, `remediation_attempt`,
+`verification`, `suppressed_maintenance`, `config_invalid`). Building
+`JsonFormatter` (`automation/response_engine/logging_config.py`) against real
+log call sites across `webhook_handler.py` and `worker.py` showed that
+`component` duplicates information Python's own `logger` name already
+carries (`sentinelops.webhook_handler`, `sentinelops.worker`, etc.), and that
+forcing every log statement into one of seven `event` values either lost
+detail an unstructured `context` object already conveys more naturally, or
+required inventing sub-categories the fixed vocabulary didn't anticipate
+(as finding 7's temporary debug logging would have needed to).
+
+The implemented schema is `timestamp`, `level`, `logger`, `message`,
+`incident_reference` (when applicable), `exception` (on error), and an
+optional free-form `context` object — structurally simpler than DESIGN.md's
+proposal, and it still satisfies Phase 1's actual requirement (every log
+line from an incident is valid JSON, filterable by `incident_reference`).
+Not caught at the time as a documented deviation, unlike findings 1-7 — the
+schema simply evolved during implementation without a corresponding
+DESIGN.md update. Recorded here now rather than treated as a defect to fix,
+since reintroducing a fixed `event` vocabulary would provide no capability
+the current schema lacks.
+
+Proposed DESIGN.md wording: "Every log line is JSON with `timestamp`,
+`level`, `logger`, and `message`. Log calls associated with a specific
+incident add `incident_reference`. Exceptions add a formatted `exception`
+field. Additional structured detail, where useful, goes in a free-form
+`context` object rather than a fixed `event` vocabulary."
+
+## 9. `incident_events` records lifecycle transitions, not remediation execution detail
+
+DESIGN.md's `event_type` list for `incident_events` includes `PLAYBOOK_STEP`
+and `VERIFICATION` alongside `CREATED`, `STATE_CHANGE`, and `NOTE`, and its
+worked timeline example shows per-attempt lines ("Restart attempt 1 of 2",
+"Health check passed") coming from that table. In practice, only `CREATED`
+(`handlers.py`), `NOTE` (`handlers.py`, for deduplicated alerts), and
+`STATE_CHANGE` (`state_machine.py`) are ever written — restart attempts and
+verification results are recorded exclusively in `remediation_attempts`,
+which already has the right shape for that data (`started_at`,
+`finished_at`, `result`, `error`, an attempt counter) and would duplicate it
+awkwardly as free-text `incident_events` rows.
+
+The two tables ended up with a cleaner split than DESIGN.md described:
+`incident_events` is the incident's lifecycle audit trail (what state did it
+enter, when, why), and `remediation_attempts` is the playbook execution
+history (what did the worker try, how long did it take, did it succeed).
+Reconstructing the full picture DESIGN.md's timeline example shows requires
+joining both tables on `incident_id`, not reading `incident_events` alone —
+not fixed now, since collapsing the two into one table would either lose
+`remediation_attempts`' typed columns or force `incident_events` to grow
+playbook-specific structure it doesn't otherwise need.
+
+Proposed DESIGN.md wording: "`incident_events` records the incident's
+lifecycle: creation, state transitions, and operator/system notes.
+Remediation execution detail — individual restart attempts, their timing,
+and their verification outcome — is recorded separately in
+`remediation_attempts` and joined by `incident_id` when reconstructing a
+full incident timeline."

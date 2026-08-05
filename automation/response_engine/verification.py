@@ -16,7 +16,7 @@ def verify_recovery(client, container_name: str, verification: dict) -> bool:
 
     Raises:
         docker.errors.NotFound:
-        The target container could not be found at the time of verification.
+            The target container could not be found at the time of verification.
 
         docker.errors.APIError:
             Docker verification failures (for example, container lookup failures) are propagated to the caller.

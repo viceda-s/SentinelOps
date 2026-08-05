@@ -5,11 +5,11 @@
 
 name: Quality Gate
 
-# Disabled until automation/scripts/bootstrap.sh exists - config-validation
-# hard-fails on a script that hasn't been built yet (see README "Not yet
-# built"). Re-enable the pull_request/push triggers once that lands.
 on:
   workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main, dev]
 
 permissions:
   contents: read

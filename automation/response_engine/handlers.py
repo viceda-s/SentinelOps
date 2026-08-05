@@ -314,7 +314,7 @@ def generate_reference(conn) -> str:
 
     References are sequential per UTC calendar year and are allocated atomically using PostgreSQL row-level locking.
 
-    The counter update participates in the caller's transaction, so a rollback also rolls back the allocated reference number.
+    The counter update participates in the caller's transaction, so a rollback also rolls back the allocated reference number. This also means the current year's counter row stays locked for the duration of the caller's transaction -- concurrent handle_alert() calls serialize on this row rather than allocating independently.
     """
 
     year = datetime.now(timezone.utc).year

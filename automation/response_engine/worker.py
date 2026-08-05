@@ -83,6 +83,8 @@ def dispatch(conn, client, incident: dict, cmdb: dict) -> None:
         return
 
     else:
+        # Should be unreachable: validate_cmdb.py rejects any playbook name in cmdb/services.yaml that isn't in IMPLEMENTED_PLAYBOOKS or "none".
+        # Unlike the "none" branch above, this raises rather than escalates -- an unrecognized playbook string means the CMDB and the worker have drifted, which is a deploy-time bug worth surfacing loudly (retry + rollback) rather than quietly escalating the incident.
         raise RuntimeError(
             f"Unknown playbook '{playbook}' for incident {incident['reference']}."
         )
