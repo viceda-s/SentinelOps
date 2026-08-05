@@ -2,6 +2,11 @@ import json
 import logging
 from datetime import datetime, timezone
 
+from .metrics import (
+    INCIDENT_RESOLUTION_SECONDS,
+    INCIDENT_RESPONSE_SECONDS,
+)
+
 logger = logging.getLogger(__name__)
 
 # NEW -> ESCALATED (in addition to DESIGN.md v1.0's NEW -> ACKNOWLEDGED | SUPPRESSED_MAINTENANCE) is a deliberate deviation from the frozen design, not an oversight. An unknown service (not in the CMDB) has to escalate straight out of enrichment, before any worker has claimed it -- see implementation-findings.md. Faking an ACKNOWLEDGED event to satisfy the original table would misrepresent the audit trail, since ACKNOWLEDGED specifically means "claimed by a worker."
@@ -140,9 +145,20 @@ def transition(conn, incident, to_status, actor, message):
     # Keep the in-memory object in sync
     #
 
+    now = datetime.now(timezone.utc)
+
     incident["status"] = to_status
 
     if to_status in STATUS_TIMESTAMPS:
-        incident[STATUS_TIMESTAMPS[to_status]] = datetime.now(timezone.utc)
+        incident[STATUS_TIMESTAMPS[to_status]] = now
+
+    if to_status == "ACKNOWLEDGED":
+        INCIDENT_RESPONSE_SECONDS.observe(
+            (now - incident["detected_at"]).total_seconds()
+        )
+    elif to_status == "RESOLVED":
+        INCIDENT_RESOLUTION_SECONDS.observe(
+            (now - incident["detected_at"]).total_seconds()
+        )
 
     return incident
