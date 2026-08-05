@@ -1,15 +1,10 @@
 import os
 import time
 
-from flask import Flask, jsonify, request
 import psycopg2
+from flask import Flask, jsonify, request
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from psycopg2 import OperationalError
-from prometheus_client import (
-    Counter,
-    Histogram,
-    generate_latest,
-    CONTENT_TYPE_LATEST
-)
 
 app = Flask(__name__)
 
@@ -35,6 +30,7 @@ API_REQUEST_LATENCY_SECONDS = Histogram(
     ["endpoint"],
 )
 
+
 def get_db_connection():
     """
     Create a new PostgreSQL connection using environment variables.
@@ -48,6 +44,7 @@ def get_db_connection():
         password=os.environ["POSTGRES_PASSWORD"],
         dbname=os.getenv("POSTGRES_DB", "postgres"),
     )
+
 
 def record_metrics(endpoint: str, status_code: int, start_time: float):
     """
@@ -118,10 +115,7 @@ def items():
                 columns = [desc[0] for desc in cur.description]
                 rows = cur.fetchall()
 
-                result = [
-                    dict(zip(columns, row))
-                    for row in rows
-                ]
+                result = [dict(zip(columns, row)) for row in rows]
         finally:
             conn.close()
 
@@ -151,6 +145,7 @@ def items():
     record_metrics("/items", status, start)
     return response, status
 
+
 @app.route("/metrics")
 def metrics():
     return (
@@ -158,6 +153,7 @@ def metrics():
         200,
         {"Content-Type": CONTENT_TYPE_LATEST},
     )
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

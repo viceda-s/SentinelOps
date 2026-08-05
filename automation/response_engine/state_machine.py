@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
 import json
 import logging
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,7 @@ STATUS_TIMESTAMPS = {
     "RESOLVED": "resolved_at",
     "CLOSED": "closed_at",
 }
+
 
 def transition(conn, incident, to_status, actor, message):
     """
@@ -50,12 +51,9 @@ def transition(conn, incident, to_status, actor, message):
                 "actor": actor,
             },
         )
-        raise ValueError(
-            f"Invalid transition: {current_status} -> {to_status}"
-        )
+        raise ValueError(f"Invalid transition: {current_status} -> {to_status}")
 
     with conn.cursor() as cur:
-
         #
         # Update incident
         #
@@ -145,8 +143,6 @@ def transition(conn, incident, to_status, actor, message):
     incident["status"] = to_status
 
     if to_status in STATUS_TIMESTAMPS:
-        incident[STATUS_TIMESTAMPS[to_status]] = datetime.now(
-            timezone.utc
-        )
+        incident[STATUS_TIMESTAMPS[to_status]] = datetime.now(timezone.utc)
 
     return incident

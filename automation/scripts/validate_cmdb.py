@@ -179,15 +179,15 @@ def validate(cmdb: dict) -> list[str]:
                         f"[{name}] verification.type 'http' requires a non empty 'url'"
                     )
         elif verification is not None:
-            errors.append(
-                f"[{name}] verification should be a mapping"
-            )
+            errors.append(f"[{name}] verification should be a mapping")
 
         playbooks = svc.get("playbooks") or {}
         if isinstance(playbooks, dict):
             for alert, playbook in playbooks.items():
                 if playbook not in IMPLEMENTED_PLAYBOOKS:
-                    errors.append(f"[{name}] alert '{alert}' maps to unknown playbook '{playbook}'")
+                    errors.append(
+                        f"[{name}] alert '{alert}' maps to unknown playbook '{playbook}'"
+                    )
 
         else:
             errors.append(f"[{name}] playbooks should be a mapping")

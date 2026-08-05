@@ -61,10 +61,7 @@ class JsonFormatter(logging.Formatter):
         context = {
             key: value
             for key, value in record.__dict__.items()
-            if (
-                key not in STANDARD_LOG_RECORD_FIELDS
-                and key != "incident_reference"
-            )
+            if (key not in STANDARD_LOG_RECORD_FIELDS and key != "incident_reference")
         }
 
         if context:

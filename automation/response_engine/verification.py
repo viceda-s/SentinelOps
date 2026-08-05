@@ -1,9 +1,9 @@
 import logging
 
 import requests
-from docker.errors import APIError, NotFound
 
 logger = logging.getLogger(__name__)
+
 
 def verify_recovery(client, container_name: str, verification: dict) -> bool:
     """
@@ -35,7 +35,7 @@ def verify_recovery(client, container_name: str, verification: dict) -> bool:
         return container.status == "running"
 
     if verification_type == "docker-health":
-        health = (container.attrs.get("State", {}).get("Health"))
+        health = container.attrs.get("State", {}).get("Health")
 
         #
         # CMDB says this container should expose a HEALTHCHECK, but it doesn't. Treat as verification failure rather than crashing the worker.
@@ -44,9 +44,7 @@ def verify_recovery(client, container_name: str, verification: dict) -> bool:
         if health is None:
             logger.warning(
                 "Container has no Docker HEALTHCHECK",
-                extra={
-                    "container": container_name
-                },
+                extra={"container": container_name},
             )
             return False
         return health.get("Status") == "healthy"
@@ -62,6 +60,4 @@ def verify_recovery(client, container_name: str, verification: dict) -> bool:
     # validate_cmdb.py should prevent this ever happening
     #
 
-    raise ValueError(
-        f"Unknown verification type: {verification_type}"
-    )
+    raise ValueError(f"Unknown verification type: {verification_type}")

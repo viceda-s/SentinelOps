@@ -15,6 +15,7 @@ TERMINAL_STATES = (
     "SUPPRESSED_MAINTENANCE",
 )
 
+
 def handle_alert(conn, alert: dict, cmdb: dict) -> None:
     """
     Process a single Alertmanager alert.
@@ -73,7 +74,7 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
 
     alertmanager_playbook = labels.get("playbook")
 
-    if (alertmanager_playbook is not None and alertmanager_playbook != playbook):
+    if alertmanager_playbook is not None and alertmanager_playbook != playbook:
         logger.warning(
             "Playbook mismatch",
             extra={
@@ -88,7 +89,6 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
 
     try:
         with conn.cursor() as cur:
-
             cur.execute(
                 """
                 INSERT INTO incidents (
@@ -174,7 +174,7 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
                     f"{alert_name} received",
                     Json(alert),
                 ),
-                )
+            )
 
             #
             # Incidents that cannot be remediated automatically escalate immediately.
@@ -201,11 +201,9 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
         conn.commit()
 
     except psycopg2.errors.UniqueViolation:
-
         conn.rollback()
 
         with conn.cursor() as cur:
-
             cur.execute(
                 """
                 SELECT *
@@ -218,13 +216,15 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
                         'ESCALATED'
                     )
                 """,
-                (fingerprint,)
+                (fingerprint,),
             )
 
             incident = cur.fetchone()
 
             if incident is None:
-                raise RuntimeError(f"Cannot resolve incident: no active incident exists for fingerprint {fingerprint!r}")
+                raise RuntimeError(
+                    f"Cannot resolve incident: no active incident exists for fingerprint {fingerprint!r}"
+                )
 
             cur.execute(
                 """
@@ -293,7 +293,10 @@ def resolve_cmdb_entry(cmdb: dict, service: str, alert_name: str):
     entry = services[service]
 
     # "none" is an internal sentinel meaning this alert has no configured playbook. It is not a valid playbook name in the CMDB itself.
-    playbook = entry.get("playbooks", {},).get(alert_name,"none")
+    playbook = entry.get(
+        "playbooks",
+        {},
+    ).get(alert_name, "none")
 
     sla = entry["sla"]
 
@@ -320,8 +323,7 @@ def generate_reference(conn) -> str:
     year = datetime.now(timezone.utc).year
 
     with conn.cursor() as cur:
-
-        cur.execute (
+        cur.execute(
             """
             INSERT INTO incident_reference_counters (
                 year,
@@ -336,10 +338,9 @@ def generate_reference(conn) -> str:
             SET next_value = incident_reference_counters.next_value + 1
             RETURNING next_value
             """,
-            (year,)
+            (year,),
         )
 
         counter = cur.fetchone()["next_value"]
 
     return f"INC-{year}-{counter:04d}"
-

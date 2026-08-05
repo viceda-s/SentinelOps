@@ -4,10 +4,11 @@ import logging
 import os
 import time
 
-import docker
 import psycopg2
 import psycopg2.extras
 import yaml
+
+import docker
 
 from .claim import claim_incident
 from .logging_config import configure_logging
@@ -100,7 +101,6 @@ def main() -> None:
     logger.info("Remediation worker started.")
 
     while True:
-
         incident = None
 
         try:
@@ -137,9 +137,10 @@ def main() -> None:
         #
 
         except docker.errors.APIError as exc:
-            if (
-                incident is not None
-                and incident["status"] not in ("ESCALATED", "RESOLVED", "CLOSED")
+            if incident is not None and incident["status"] not in (
+                "ESCALATED",
+                "RESOLVED",
+                "CLOSED",
             ):
                 transition(
                     conn,
@@ -155,9 +156,7 @@ def main() -> None:
                 "Docker Engine communication failed.",
                 extra={
                     "incident_reference": (
-                        incident["reference"]
-                        if incident is not None
-                        else None
+                        incident["reference"] if incident is not None else None
                     ),
                 },
             )
@@ -177,9 +176,7 @@ def main() -> None:
                 "Worker iteration failed.",
                 extra={
                     "incident_reference": (
-                        incident["reference"]
-                        if incident is not None
-                        else None
+                        incident["reference"] if incident is not None else None
                     ),
                 },
             )

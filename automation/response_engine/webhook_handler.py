@@ -69,7 +69,6 @@ def alerts():
     """
 
     try:
-
         payload = request.get_json()
 
         if not isinstance(payload, dict):
@@ -85,7 +84,6 @@ def alerts():
             ), 400
 
         with get_connection() as conn:
-
             for alert in alerts:
                 handle_alert(
                     conn,

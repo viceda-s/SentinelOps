@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import time
-import docker
 import json
-
-from .state_machine import transition
-from .verification import verify_recovery
-from .playbooks import IMPLEMENTED_PLAYBOOKS
-
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import docker
+
+from .state_machine import transition
+from .verification import verify_recovery
 
 VERIFY_TIMEOUT = 30
 VERIFY_INTERVAL = 1
@@ -32,7 +30,6 @@ def record_attempt_start(conn, incident: dict, playbook: str) -> int:
     """
 
     with conn.cursor() as cur:
-
         #
         # Allocate the next attempt number for this incident
         #
@@ -78,7 +75,15 @@ def record_attempt_start(conn, incident: dict, playbook: str) -> int:
     return attempt_number
 
 
-def record_attempt_finish(conn, incident: dict, attempt_number: int, result: str, *, diagnostics_path: str | None = None, error: str | None = None) -> None:
+def record_attempt_finish(
+    conn,
+    incident: dict,
+    attempt_number: int,
+    result: str,
+    *,
+    diagnostics_path: str | None = None,
+    error: str | None = None,
+) -> None:
     """
     Complete an existing remediation attempt
 
@@ -98,13 +103,7 @@ def record_attempt_finish(conn, incident: dict, attempt_number: int, result: str
             WHERE incident_id = %s
                 AND attempt_number = %s
             """,
-            (
-                result,
-                diagnostics_path,
-                error,
-                incident["id"],
-                attempt_number
-            ),
+            (result, diagnostics_path, error, incident["id"], attempt_number),
         )
 
         #
@@ -112,7 +111,9 @@ def record_attempt_finish(conn, incident: dict, attempt_number: int, result: str
         #
 
         if cur.rowcount != 1:
-            raise RuntimeError(f"Attempt {attempt_number} does not exist for incident {incident['reference']}")
+            raise RuntimeError(
+                f"Attempt {attempt_number} does not exist for incident {incident['reference']}"
+            )
 
 
 def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
@@ -124,11 +125,7 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
     """
 
     incident = transition(
-        conn,
-        incident,
-        "IN_PROGRESS",
-        "worker",
-        "Starting restart_service playbook"
+        conn, incident, "IN_PROGRESS", "worker", "Starting restart_service playbook"
     )
 
     if incident["service"] not in cmdb["services"]:
@@ -152,7 +149,6 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
             "restart_service",
         )
         try:
-
             #
             # 1. Container must exist
             #
@@ -245,7 +241,7 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
         incident,
         "ESCALATED",
         "worker",
-        f"Service did not recover after {MAX_RESTART_ATTEMPTS} restart attempts."
+        f"Service did not recover after {MAX_RESTART_ATTEMPTS} restart attempts.",
     )
 
 
@@ -258,11 +254,7 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
     """
 
     incident = transition(
-        conn,
-        incident,
-        "IN_PROGRESS",
-        "worker",
-        "Starting collect_diagnostics playbook"
+        conn, incident, "IN_PROGRESS", "worker", "Starting collect_diagnostics playbook"
     )
 
     if incident["service"] not in cmdb["services"]:
@@ -278,9 +270,9 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
     service = cmdb["services"][incident["service"]]
     container_name = service["container_name"]
     attempt_number = record_attempt_start(
-                conn,
-                incident,
-                "collect_diagnostics",
+        conn,
+        incident,
+        "collect_diagnostics",
     )
 
     try:
@@ -327,7 +319,9 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
 
         DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
 
-        diagnostics_path = DIAGNOSTICS_DIR / f"{incident['reference']}-attempt-{attempt_number}.json"
+        diagnostics_path = (
+            DIAGNOSTICS_DIR / f"{incident['reference']}-attempt-{attempt_number}.json"
+        )
         with diagnostics_path.open("w", encoding="utf-8") as f:
             json.dump(diagnostics, f, indent=2)
 
@@ -376,9 +370,5 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
         )
 
         incident = transition(
-            conn,
-            incident,
-            "ESCALATED",
-            "worker",
-            "Failed to persist diagnostics"
+            conn, incident, "ESCALATED", "worker", "Failed to persist diagnostics"
         )
