@@ -15,6 +15,7 @@ from .remediation import (
     collect_diagnostics,
     restart_service,
 )
+from .state_machine import transition
 
 POLL_INTERVAL = 5
 
@@ -66,10 +67,24 @@ def dispatch(conn, client, incident: dict, cmdb: dict) -> None:
             cmdb,
         )
 
+    elif playbook == "none":
+        logger.error(
+            "Incident reached worker without a configured playbook.",
+            extra={"incident_reference": incident["reference"]},
+        )
+
+        transition(
+            conn,
+            incident,
+            "ESCALATED",
+            "worker",
+            "No playbook configured.",
+        )
+        return
+
     else:
         raise RuntimeError(
-            f"Unknown playbook '{playbook}' "
-            f"for incident {incident['reference']}."
+            f"Unknown playbook '{playbook}' for incident {incident['reference']}."
         )
 
 
@@ -119,7 +134,19 @@ def main() -> None:
         # the failed remediation attempt.
         #
 
-        except docker.errors.APIError:
+        except docker.errors.APIError as exc:
+            if (
+                incident is not None
+                and incident["status"] not in ("ESCALATED", "RESOLVED", "CLOSED")
+            ):
+                transition(
+                    conn,
+                    incident,
+                    "ESCALATED",
+                    "worker",
+                    f"Docker API failure: {exc}",
+                )
+
             conn.commit()
 
             logger.exception(

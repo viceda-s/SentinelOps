@@ -174,20 +174,28 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
                     f"{alert_name} received",
                     Json(alert),
                 ),
-            )
+                )
 
             #
-            # Unknown services escalate immediately
+            # Incidents that cannot be remediated automatically escalate immediately.
             #
 
             if not known_service:
-
                 transition(
                     conn,
                     incident,
                     "ESCALATED",
                     "webhook_handler",
                     "Unknown service in CMDB",
+                )
+
+            elif playbook == "none":
+                transition(
+                    conn,
+                    incident,
+                    "ESCALATED",
+                    "webhook_handler",
+                    f"No playbook configured for alert {alert_name!r}",
                 )
 
         conn.commit()
