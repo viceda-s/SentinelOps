@@ -1,0 +1,10 @@
+# Runtime dependencies for the webhook-handler service container.
+# Pinned so a rebuild months from now can't silently pull a breaking release.
+#
+# Check these are still current before you commit them the first time:
+#   pip index versions <dependency>
+
+Flask==3.1.3
+psycopg2-binary==2.9.12
+PyYAML==6.0.3
+gunicorn==26.0.0

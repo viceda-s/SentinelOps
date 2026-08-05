@@ -1,0 +1,86 @@
+# Checks that have to pass before anything goes into dev or main.
+#
+# Most of the actual validation lives in bootstrap.sh --validate-only, so running
+# that locally gives the same result as CI. Only repo-level checks live here.
+
+name: Quality Gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  config-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - run: pip install -r requirements-dev.txt
+
+      - name: shellcheck
+        run: shellcheck automation/scripts/*.sh
+
+      - name: scripts are executable
+        run: |
+          for f in automation/scripts/*.sh; do
+            if [ ! -x "$f" ]; then
+              echo "$f is not executable"
+              echo "fix: git update-index --chmod=+x $f"
+              exit 1
+            fi
+          done
+
+      # compose, prometheus, alertmanager, cmdb, runbooks, playbook references.
+      # image versions are pinned in .env.example so CI checks the same versions
+      # the stack actually runs.
+      - name: validate config
+        run: |
+          cp .env.example .env
+          ./automation/scripts/bootstrap.sh --validate-only
+
+      # this one is repo hygiene rather than operational config, so it doesn't
+      # belong in bootstrap.sh - someone starting the stack doesn't care that a
+      # readme link is stale.
+      # TODO: replace the grep with a proper markdown parser at some point
+      - name: scripts named in the readme
+        run: |
+          fail=0
+          for s in $(grep -oE '\./[A-Za-z0-9_/.-]+\.sh' README.md | sort -u); do
+            [ -f "$s" ] || { echo "readme references $s but it doesn't exist"; fail=1; }
+          done
+          exit $fail
+
+  python-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - run: pip install -r requirements-dev.txt
+
+      - run: ruff check .
+
+      - run: ruff format --check .
+
+      # TODO: pytest here once the state machine tests exist (phase 3)
