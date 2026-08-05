@@ -36,7 +36,6 @@ class JsonFormatter(logging.Formatter):
     """
 
     def format(self, record: logging.LogRecord) -> str:
-
         payload = {
             "timestamp": datetime.fromtimestamp(
                 record.created,
