@@ -11,6 +11,7 @@ cd "$REPO_ROOT"
 #
 
 API_PORT=8081
+API_DIRECT_PORT=5001
 GRAFANA_PORT=3001
 POSTGRES_PORT=5432
 PROMETHEUS_PORT=9090
@@ -230,6 +231,9 @@ SentinelOps is ready.
 
 Application:
     http://localhost:${API_PORT}
+
+API (direct):
+    http://localhost:${API_DIRECT_PORT}
 
 Grafana:
     http://localhost:${GRAFANA_PORT}

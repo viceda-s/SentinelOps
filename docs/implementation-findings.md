@@ -344,3 +344,7 @@ Remediation execution detail — individual restart attempts, their timing,
 and their verification outcome — is recorded separately in
 `remediation_attempts` and joined by `incident_id` when reconstructing a
 full incident timeline."
+
+## 10. CMDB lookups must tolerate configuration drift
+
+The response engine originally assumed the CMDB would remain unchanged for the lifetime of an incident. This created a failure mode where removing or renaming a service entry while an incident was still open could strand the incident indefinitely. The worker now treats missing CMDB entries as a terminal condition and escalates the incident instead of retrying forever.

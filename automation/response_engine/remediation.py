@@ -131,6 +131,16 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
         "Starting restart_service playbook"
     )
 
+    if incident["service"] not in cmdb["services"]:
+        incident = transition(
+            conn,
+            incident,
+            "ESCALATED",
+            "worker",
+            "Service no longer exists in the CMDB.",
+        )
+        return
+
     service = cmdb["services"][incident["service"]]
     container_name = service["container_name"]
     verification = service["verification"]
@@ -254,6 +264,16 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
         "worker",
         "Starting collect_diagnostics playbook"
     )
+
+    if incident["service"] not in cmdb["services"]:
+        incident = transition(
+            conn,
+            incident,
+            "ESCALATED",
+            "worker",
+            "Service no longer exists in the CMDB.",
+        )
+        return
 
     service = cmdb["services"][incident["service"]]
     container_name = service["container_name"]

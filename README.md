@@ -263,6 +263,7 @@ Additional Phase 1 simplifications include:
 
 * A shared Grafana administrator account configured through `GRAFANA_ADMIN_PASSWORD`.
 * Prometheus and Alertmanager exposed without authentication.
+* The Alertmanager webhook receiver (/alerts) is intentionally unauthenticated in Phase 1 because all services communicate over the project's private Docker network and the endpoint is not exposed on a host port. In a production deployment, this endpoint should be authenticated or otherwise restricted, as it creates incident records and can trigger automated container restarts.
 * Local secrets stored in `.env`, which is excluded from version control.
 * Local-only chaos tooling designed to operate exclusively on this project's Docker Compose stack.
 
