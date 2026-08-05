@@ -3,5 +3,6 @@
 # Check these are still current before you commit them the first time:
 #   pip index versions <dependency>
 ruff==0.16.1
+prometheus-client==0.26.0
 pytest==9.1.1
 pyyaml==6.0.3
