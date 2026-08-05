@@ -3,9 +3,13 @@
 Real discrepancies between `docs/DESIGN.md` v1.0 and what building it actually
 required, found during Phase 1. Not a changelog and not a wishlist — only
 things where the design's own words contradict each other or contradict
-observed reality. Each one becomes a CHANGELOG entry and an ADR when DESIGN.md
-gets its v1.1 pass; until then the code follows the finding, not the frozen
-doc, and says so at the point of deviation.
+observed reality.
+
+The findings below were reconciled into `docs/DESIGN.md` v1.1 on 2026-08-05
+— see `CHANGELOG.md` for a summary of what changed. They are retained here as
+an engineering history of how the design evolved: `docs/DESIGN.md`, the ADRs,
+and `CHANGELOG.md` are now the canonical documentation, and none of this is
+required reading to understand the system as currently designed.
 
 ## 1. Alertmanager identifies services by `job`, not `service`
 
