@@ -10,15 +10,16 @@ def verify_recovery(client, container_name: str, verification: dict) -> bool:
     Perform a single recovery verification
 
     Returns:
-        True if verification succeeds.
-        False if verification fails, including transient HTTP/network failures.
+        True if recovery succeeded.
+
+        False if the service is reachable but unhealthy (including HTTP/network failures).
 
     Raises:
         docker.errors.NotFound:
-            The target container does not exist.
+        The target container could not be found at the time of verification.
 
         docker.errors.APIError:
-            Docker Engine communication failed.
+            Docker verification failures (for example, container lookup failures) are propagated to the caller.
     """
 
     verification_type = verification["type"]
