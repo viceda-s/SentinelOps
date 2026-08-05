@@ -45,6 +45,7 @@ def _firing_alert() -> dict:
 
 
 def counter_value(counter: Counter, **labels) -> float:
+    """Return the current value of a labeled Counter"""
     metric = next(iter(counter.collect()))
 
     for sample in metric.samples:
