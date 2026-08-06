@@ -122,6 +122,7 @@ services:
       context: .
       dockerfile: docker/worker/Dockerfile
     container_name: sentinelops-worker
+    init: true
     env_file:
       - .env
     environment:
