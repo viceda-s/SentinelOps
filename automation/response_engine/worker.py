@@ -7,11 +7,15 @@ import time
 import psycopg2
 import psycopg2.extras
 import yaml
-from prometheus_client import start_http_server
+from prometheus_client import REGISTRY, start_http_server
 
 import docker
 
 from .claim import claim_incident
+from .collectors import (
+    IncidentsCollector,
+    QueueDepthCollector,
+)
 from .logging_config import configure_logging
 from .metrics import WORKER_HEARTBEAT_TIMESTAMP
 from .remediation import (
@@ -96,6 +100,11 @@ def dispatch(conn, client, incident: dict, cmdb: dict) -> None:
 
 def main() -> None:
     configure_logging()
+
+    REGISTRY.register(IncidentsCollector(get_connection))
+
+    REGISTRY.register(QueueDepthCollector(get_connection))
+
     start_http_server(8000)
 
     cmdb = load_cmdb()
