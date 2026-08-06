@@ -11,6 +11,7 @@ if [[ ! -f .env ]]; then
 fi
 
 set -a
+# shellcheck disable=SC1091  # .env is gitignored and machine-specific; nothing to follow.
 source .env
 set +a
 
