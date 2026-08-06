@@ -87,3 +87,35 @@ services:
     sla:
       response_minutes: 5
       resolution_minutes: 60
+
+  webhook-handler:
+    container_name: sentinelops-webhook-handler
+    owner: platform-team
+    escalation_contact: platform-oncall@email.local
+    tier: prod
+    criticality: high
+    runbook: docs/runbooks/service-down.md
+    verification:
+      type: http
+      url: http://webhook-handler:8000/metrics
+    playbooks:
+      ResponseEngineDown: none
+    sla:
+      response_minutes: 5
+      resolution_minutes: 60
+
+  worker:
+    container_name: sentinelops-worker
+    owner: platform-team
+    escalation_contact: platform-oncall@email.local
+    tier: prod
+    criticality: high
+    runbook: docs/runbooks/service-down.md
+    verification:
+      type: http
+      url: http://worker:8000/metrics
+    playbooks:
+      ResponseEngineDown: none
+    sla:
+      response_minutes: 5
+      resolution_minutes: 60
