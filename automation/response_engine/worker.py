@@ -7,15 +7,18 @@ import time
 import psycopg2
 import psycopg2.extras
 import yaml
+from prometheus_client import start_http_server
 
 import docker
 
 from .claim import claim_incident
 from .logging_config import configure_logging
+from .metrics import WORKER_HEARTBEAT_TIMESTAMP
 from .remediation import (
     collect_diagnostics,
     restart_service,
 )
+from .sla import check_sla_breaches
 from .state_machine import transition
 
 POLL_INTERVAL = 5
@@ -93,6 +96,7 @@ def dispatch(conn, client, incident: dict, cmdb: dict) -> None:
 
 def main() -> None:
     configure_logging()
+    start_http_server(8000)
 
     cmdb = load_cmdb()
     client = docker.from_env()
@@ -104,6 +108,10 @@ def main() -> None:
         incident = None
 
         try:
+            WORKER_HEARTBEAT_TIMESTAMP.set_to_current_time()
+
+            check_sla_breaches(conn)
+
             incident = claim_incident(conn)
 
             if incident is None:

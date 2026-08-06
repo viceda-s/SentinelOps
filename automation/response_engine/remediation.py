@@ -7,6 +7,7 @@ from pathlib import Path
 
 import docker
 
+from .metrics import REMEDIATION_ATTEMPTS_TOTAL
 from .state_machine import transition
 from .verification import verify_recovery
 
@@ -79,16 +80,20 @@ def record_attempt_finish(
     conn,
     incident: dict,
     attempt_number: int,
+    playbook: str,
     result: str,
     *,
     diagnostics_path: str | None = None,
     error: str | None = None,
 ) -> None:
     """
-    Complete an existing remediation attempt
+    Record the completion of a remediation attempt.
+
+    playbook must be the same playbook name that was passed to
+    record_attempt_start() for this attempt.
 
     The caller owns the transaction.
-    This function MUST NOT call commit() or rollback()
+    This function MUST NOT call commit() or rollback().
     """
 
     with conn.cursor() as cur:
@@ -101,19 +106,31 @@ def record_attempt_finish(
                 diagnostics_path = %s,
                 error = %s
             WHERE incident_id = %s
-                AND attempt_number = %s
+              AND attempt_number = %s
             """,
-            (result, diagnostics_path, error, incident["id"], attempt_number),
+            (
+                result,
+                diagnostics_path,
+                error,
+                incident["id"],
+                attempt_number,
+            ),
         )
 
         #
-        # Defensive check: the caller should only finish an attempt that actually exists.
+        # Defensive check: the caller should only finish an attempt that
+        # actually exists.
         #
 
         if cur.rowcount != 1:
             raise RuntimeError(
                 f"Attempt {attempt_number} does not exist for incident {incident['reference']}"
             )
+
+        REMEDIATION_ATTEMPTS_TOTAL.labels(
+            playbook=playbook,
+            result=result,
+        ).inc()
 
 
 def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
@@ -138,6 +155,7 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
         )
         return
 
+    playbook = "restart_service"
     service = cmdb["services"][incident["service"]]
     container_name = service["container_name"]
     verification = service["verification"]
@@ -146,7 +164,7 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
         attempt_number = record_attempt_start(
             conn,
             incident,
-            "restart_service",
+            playbook,
         )
         try:
             #
@@ -161,6 +179,7 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
                     conn,
                     incident,
                     attempt_number,
+                    playbook,
                     result="failure",
                     error=str(e),
                 )
@@ -194,6 +213,7 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
                         conn,
                         incident,
                         attempt_number,
+                        playbook,
                         result="success",
                     )
 
@@ -216,6 +236,7 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
                 conn,
                 incident,
                 attempt_number,
+                playbook,
                 result="timeout",
                 error=(f"Verification timed out after {VERIFY_TIMEOUT} seconds"),
             )
@@ -228,6 +249,7 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
                 conn,
                 incident,
                 attempt_number,
+                playbook,
                 result="failure",
                 error=str(e),
             )
@@ -267,12 +289,13 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
         )
         return
 
+    playbook = "collect_diagnostics"
     service = cmdb["services"][incident["service"]]
     container_name = service["container_name"]
     attempt_number = record_attempt_start(
         conn,
         incident,
-        "collect_diagnostics",
+        playbook,
     )
 
     try:
@@ -288,6 +311,7 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
                 conn,
                 incident,
                 attempt_number,
+                playbook,
                 result="failure",
                 error=str(e),
             )
@@ -329,6 +353,7 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
             conn,
             incident,
             attempt_number,
+            playbook,
             result="success",
             diagnostics_path=str(diagnostics_path),
         )
@@ -350,6 +375,7 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
             conn,
             incident,
             attempt_number,
+            playbook,
             result="failure",
             error=str(e),
         )
@@ -365,6 +391,7 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
             conn,
             incident,
             attempt_number,
+            playbook,
             result="failure",
             error=str(e),
         )
