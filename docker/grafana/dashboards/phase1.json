@@ -80,7 +80,7 @@
           "editorMode": "code",
           "expr": "sum(up)",
           "instant": false,
-          "legendFormat": "services up",
+          "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
@@ -213,7 +213,7 @@
           "editorMode": "code",
           "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
           "instant": false,
-          "legendFormat": "{{instance}}",
+          "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
@@ -314,7 +314,7 @@
           "editorMode": "code",
           "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
           "instant": false,
-          "legendFormat": "{{instance}}",
+          "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
@@ -511,7 +511,7 @@
           "editorMode": "code",
           "expr": "sum(rate(api_requests_total[5m]))",
           "instant": false,
-          "legendFormat": "requests/sec",
+          "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
@@ -608,7 +608,7 @@
           "editorMode": "code",
           "expr": "histogram_quantile(0.95, sum by (le, endpoint) (rate(api_request_latency_seconds_bucket[5m])))",
           "instant": false,
-          "legendFormat": "{{endpoint}}",
+          "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
@@ -705,7 +705,7 @@
           "editorMode": "code",
           "expr": "rate(api_errors_total[2m]) / sum by (endpoint) (rate(api_requests_total[2m]))",
           "instant": false,
-          "legendFormat": "{{endpoint}}",
+          "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }

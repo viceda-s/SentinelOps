@@ -120,6 +120,7 @@ def main() -> None:
             WORKER_HEARTBEAT_TIMESTAMP.set_to_current_time()
 
             check_sla_breaches(conn)
+            conn.commit()
 
             incident = claim_incident(conn)
 
