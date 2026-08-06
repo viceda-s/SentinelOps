@@ -17,5 +17,6 @@ set +a
 # Tests run from host, not the Docker network
 export POSTGRES_HOST=localhost
 export POSTGRES_PORT=5432
+export CMDB_PATH="$REPO_ROOT/cmdb/services.yaml"
 
 exec pytest "$@"
