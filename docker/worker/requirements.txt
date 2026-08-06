@@ -4,6 +4,7 @@
 # Check these are still current before you commit them the first time:
 #   pip index versions <dependency>
 
+docker==7.2.0
+prometheus-client==0.26.0
 psycopg2-binary==2.9.12
 PyYAML==6.0.3
-docker==7.2.0

@@ -6,7 +6,8 @@ from pathlib import Path
 
 import psycopg2
 import yaml
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from psycopg2.extras import RealDictCursor
 from werkzeug.exceptions import BadRequest, UnsupportedMediaType
 
@@ -116,6 +117,16 @@ def alerts():
         return jsonify(
             error="Internal server error.",
         ), 500
+
+
+@app.get("/metrics")
+def metrics():
+    """Expose Prometheus metrics."""
+
+    return Response(
+        generate_latest(),
+        content_type=CONTENT_TYPE_LATEST,
+    )
 
 
 if __name__ == "__main__":

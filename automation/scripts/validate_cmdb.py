@@ -33,6 +33,8 @@ REQUIRED_SLA_KEYS = ("response_minutes", "resolution_minutes")
 
 VALID_CRITICALITY = {"high", "medium", "low"}
 
+VALID_PLAYBOOKS = IMPLEMENTED_PLAYBOOKS | {"none"}
+
 VALID_VERIFICATION_TYPES = {
     "http",
     "docker-health",
@@ -184,7 +186,7 @@ def validate(cmdb: dict) -> list[str]:
         playbooks = svc.get("playbooks") or {}
         if isinstance(playbooks, dict):
             for alert, playbook in playbooks.items():
-                if playbook not in IMPLEMENTED_PLAYBOOKS:
+                if playbook not in VALID_PLAYBOOKS:
                     errors.append(
                         f"[{name}] alert '{alert}' maps to unknown playbook '{playbook}'"
                     )

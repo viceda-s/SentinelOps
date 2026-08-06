@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import psycopg2
 from psycopg2.extras import Json
 
+from .metrics import INCIDENTS_CREATED_TOTAL
 from .state_machine import transition
 
 logger = logging.getLogger(__name__)
@@ -146,6 +147,12 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
             )
 
             incident = cur.fetchone()
+
+            # Best-effort telemetry: Prometheus metrics are not transactionally coupled to PostgreSQL, so this may diverge if the transaction later rolls back.
+            INCIDENTS_CREATED_TOTAL.labels(
+                service=incident["service"],
+                severity=incident["severity"],
+            ).inc()
 
             cur.execute(
                 """

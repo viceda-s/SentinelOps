@@ -39,6 +39,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    ports:
+      - "5432:5432"
     restart: unless-stopped
 
   node-exporter:
@@ -120,6 +122,7 @@ services:
       context: .
       dockerfile: docker/worker/Dockerfile
     container_name: sentinelops-worker
+    init: true
     env_file:
       - .env
     environment:
