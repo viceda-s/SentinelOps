@@ -55,7 +55,7 @@ def make_incident(db_connection):
             "detected_at": datetime.now(timezone.utc),
             "labels": Json({}),
             "annotations": Json({}),
-            # Behaviourlly required defaults.
+            # Behaviourally required defaults.
             "sla_response_minutes": 5,
             "sla_resolution_minutes": 60,
         }
