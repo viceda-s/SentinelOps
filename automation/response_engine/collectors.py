@@ -27,6 +27,12 @@ class IncidentsCollector(Collector):
         )
 
         try:
+            #
+            # The connection is owned by the injected connect() callable, not by the
+            # collector. Production passes get_connection(); tests may deliberately
+            # return a fixture-owned connection so the collector can observe
+            # uncommitted rows. Do not close() the connection here.
+            #
             conn = self._connect()
 
             with conn.cursor() as cur:
@@ -75,6 +81,12 @@ class QueueDepthCollector(Collector):
         )
 
         try:
+            #
+            # The connection is owned by the injected connect() callable, not by the
+            # collector. Production passes get_connection(); tests may deliberately
+            # return a fixture-owned connection so the collector can observe
+            # uncommitted rows. Do not close() the connection here.
+            #
             conn = self._connect()
 
             with conn.cursor() as cur:
@@ -92,7 +104,7 @@ class QueueDepthCollector(Collector):
 
         except Exception:
             logger.exception(
-                "Failed to collect sentinelops_depth_queue; omitting from this scrape."
+                "Failed to collect sentinelops_queue_depth; omitting from this scrape."
             )
             return
 

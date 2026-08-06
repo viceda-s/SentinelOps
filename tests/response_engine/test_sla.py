@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 
 from prometheus_client import Counter
@@ -252,3 +253,23 @@ def test_terminal_incident_is_ignored(db_connection, make_incident):
         )
 
         assert cur.fetchone()["count"] == 0
+
+
+def test_check_sla_breaches_logs_response_breach(
+    db_connection,
+    make_incident,
+    caplog,
+):
+    incident = make_incident(
+        status="NEW",
+        sla_response_minutes=0,
+    )
+
+    with caplog.at_level(logging.INFO):
+        check_sla_breaches(db_connection)
+
+    assert "Response SLA breached." in caplog.text
+
+    assert any(
+        record.incident_reference == incident["reference"] for record in caplog.records
+    )

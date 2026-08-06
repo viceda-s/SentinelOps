@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from psycopg2.extras import Json
 
 from .metrics import SLA_BREACHES_TOTAL
@@ -12,7 +14,7 @@ WHERE
     AND sla_response_breached = FALSE
     AND clock_timestamp () >
         detected_at + make_interval(mins => sla_response_minutes)
-RETURNING id;
+RETURNING id, reference;
 """
 
 _RESOLUTION_BREACH_SQL = """
@@ -23,8 +25,10 @@ WHERE
     AND sla_resolution_breached = FALSE
     AND clock_timestamp () >
         detected_at + make_interval(mins => sla_resolution_minutes)
-RETURNING id;
+RETURNING id, reference;
 """
+
+logger = logging.getLogger(__name__)
 
 
 def _check_one(conn, sql: str, breach_type: str, message: str) -> None:
@@ -82,6 +86,13 @@ def _check_one(conn, sql: str, breach_type: str, message: str) -> None:
             )
 
             SLA_BREACHES_TOTAL.labels(type=breach_type).inc()
+
+            logger.info(
+                message,
+                extra={
+                    "incident_reference": incident["reference"],
+                },
+            )
 
 
 def check_sla_breaches(conn) -> None:
