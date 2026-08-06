@@ -53,6 +53,7 @@ def make_incident(db_connection):
             "severity": "critical",
             "status": "NEW",
             "detected_at": datetime.now(timezone.utc),
+            "resolved_at": None,
             "labels": Json({}),
             "annotations": Json({}),
             # Behaviourally required defaults.
