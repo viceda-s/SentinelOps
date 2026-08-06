@@ -10,7 +10,7 @@ The project was built to explore how production incident response systems coordi
 
 # Current Status
 
-**Phase 1 is complete and fully verified against real infrastructure.**
+**Phase 1 is complete and fully verified against real infrastructure.** Phase 2 ("the operational layer") is in progress; operational visibility (issue #4) is complete and merged.
 
 The complete autonomous incident pipeline has been implemented and validated:
 
@@ -30,6 +30,13 @@ Phase 1 includes:
 * CMDB validation
 * Operational runbooks
 * Architecture Decision Records (ADRs)
+
+Phase 2 builds an operational layer on top of the Phase 1 loop. Shipped so far:
+
+* `/metrics` endpoints on both the worker and webhook handler
+* Live SLA breach detection, driven by per-service `sla` fields in the CMDB
+* Self-monitoring for the response engine's own processes (`ResponseEngineDown`, worker heartbeat)
+* A second Grafana dashboard ("SentinelOps — Response Engine") showing MTTR, MTTA, queue depth, remediation success rate, and SLA breaches, calculated from real incidents
 
 Future phases focus on extending the platform rather than completing the core incident response workflow.
 
@@ -91,7 +98,7 @@ These principles are documented in the project's Architecture Decision Records
 * Prometheus metrics collection
 * Alertmanager alert routing
 * Grafana dashboards
-* Six production-style alert rules
+* Seven production-style alert rules, including `ResponseEngineDown` for the response engine's own self-monitoring
 
 ## Response Engine
 
@@ -122,6 +129,14 @@ Recovery verification supports:
 * `teardown.sh`
 * `chaos.sh`
 * `validate_cmdb.py`
+
+## Operational Visibility (Phase 2)
+
+* Prometheus `/metrics` endpoints on the worker and webhook handler
+* Live SLA breach detection (`sentinelops_sla_breaches_total`), evaluated continuously against each incident's CMDB-defined `response_minutes`/`resolution_minutes`, not just at state transitions
+* Self-monitoring: `ResponseEngineDown` alert rule and a worker heartbeat gauge, detecting a hung poll loop even when the process is still technically running
+* MTTR/MTTA histograms (`sentinelops_incident_resolution_seconds`, `sentinelops_incident_response_seconds`), observed directly in the state machine's `transition()`
+* Second Grafana dashboard ("SentinelOps — Response Engine"): MTTR, MTTA, queue depth, worker heartbeat age, open incidents by status, remediation success rate, SLA breaches over time — all calculated from real recorded incidents, not seeded data
 
 ---
 # Documentation
@@ -275,12 +290,11 @@ These trade-offs are appropriate for a learning environment but would be replace
 
 # Future Work
 
-Phase 1 establishes the complete autonomous incident response loop. Future phases extend the platform with additional operational capabilities rather than changing its core architecture.
+Phase 1 establishes the complete autonomous incident response loop. Future phases extend the platform with additional operational capabilities rather than changing its core architecture. Phase 2 operational visibility (SLA tracking, self-monitoring, `/metrics`) is complete — see Features above.
 
 ### Incident Management
 
 * Maintenance windows
-* SLA tracking
 * Incident reporting
 
 ### Automation
