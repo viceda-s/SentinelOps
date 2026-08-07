@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from automation.report_generator.health_page import (
     query_health_state,
     render_health_page,
@@ -103,3 +105,14 @@ def test_query_health_state_page_produces_html(db_connection):
     assert "<html" in html.lower()
     assert "api" in html
     assert "None active" in html
+
+
+def test_query_health_state_rejects_unknown_severity(db_connection, make_incident):
+    make_incident(
+        service="api",
+        status="NEW",
+        severity="info",
+    )
+
+    with pytest.raises(ValueError, match="info"):
+        query_health_state(db_connection, CMDB)

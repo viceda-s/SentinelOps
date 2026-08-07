@@ -11,9 +11,6 @@ SEVERITY_RANK = {
     "warning": 1,
 }
 
-# Unknown severities rank after all known values so the health page degrades gracefully instead of failing.
-UNKNOWN_SEVERITY_RANK = len(SEVERITY_RANK)
-
 
 @dataclass
 class HealthPageModel:
@@ -26,6 +23,13 @@ _TEMPLATE_ENV = Environment(
     loader=FileSystemLoader(Path(__file__).parent / "templates"),
     autoescape=select_autoescape(["html"]),
 )
+
+
+def severity_rank(severity: str) -> int:
+    try:
+        return SEVERITY_RANK[severity]
+    except KeyError as exc:
+        raise ValueError(f"Unknown incident severity: {severity!r}") from exc
 
 
 def query_health_state(conn, cmdb: dict) -> HealthPageModel:
@@ -61,6 +65,7 @@ def query_health_state(conn, cmdb: dict) -> HealthPageModel:
     counts = Counter()
 
     for incident in open_incidents:
+        incident_rank = severity_rank(incident["severity"])
         counts[incident["severity"]] += 1
 
         service = service_index.get(incident["service"])
@@ -72,10 +77,9 @@ def query_health_state(conn, cmdb: dict) -> HealthPageModel:
             service["severity"] = incident["severity"]
             continue
 
-        current_rank = SEVERITY_RANK.get(service["severity"], UNKNOWN_SEVERITY_RANK)
-        new_rank = SEVERITY_RANK.get(incident["severity"], UNKNOWN_SEVERITY_RANK)
+        current_rank = severity_rank(service["severity"])
 
-        if new_rank < current_rank:
+        if incident_rank < current_rank:
             service["status"] = incident["status"]
             service["severity"] = incident["severity"]
 

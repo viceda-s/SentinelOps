@@ -23,6 +23,7 @@ def find_incident_by_reference(conn, reference):
             SELECT *
             FROM incidents
             WHERE reference = %s
+            FOR UPDATE
             """,
             (reference,),
         )

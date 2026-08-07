@@ -1,8 +1,10 @@
+import os
 from datetime import datetime, timezone
 
+import psycopg2
 import pytest
 
-from automation.scripts.close_incident import close_incident
+from automation.scripts.close_incident import close_incident, find_incident_by_reference
 
 
 def test_close_incident_success(db_connection, make_incident):
@@ -100,3 +102,37 @@ def test_close_incident_does_not_commit_transaction(db_connection, make_incident
     with db_connection.cursor() as cur:
         cur.execute("DELETE FROM incidents WHERE id = %s", (incident["id"],))
     db_connection.commit()
+
+
+def test_find_incident_by_reference_acquires_row_lock(db_connection, make_incident):
+    incident = make_incident(
+        status="RESOLVED",
+        resolved_at=datetime.now(timezone.utc),
+    )
+    db_connection.commit()
+
+    contender = psycopg2.connect(
+        host=os.environ.get("POSTGRES_HOST", "localhost"),
+        port=int(os.environ.get("POSTGRES_PORT", "5432")),
+        dbname=os.environ["POSTGRES_DB"],
+        user=os.environ["POSTGRES_USER"],
+        password=os.environ["POSTGRES_PASSWORD"],
+    )
+
+    try:
+        assert find_incident_by_reference(db_connection, incident["reference"])
+
+        with pytest.raises(psycopg2.errors.LockNotAvailable), contender.cursor() as cur:
+            cur.execute("SET LOCAL lock_timeout = '100ms'")
+            cur.execute(
+                "SELECT id FROM incidents WHERE id = %s FOR UPDATE",
+                (incident["id"],),
+            )
+    finally:
+        contender.rollback()
+        contender.close()
+        db_connection.rollback()
+
+        with db_connection.cursor() as cur:
+            cur.execute("DELETE FROM incidents WHERE id = %s", (incident["id"],))
+        db_connection.commit()

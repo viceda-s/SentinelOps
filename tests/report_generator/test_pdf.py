@@ -3,11 +3,15 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timezone
 
+from reportlab.platypus import Paragraph, Table
+
 from automation.report_generator.pdf import (
     build_timeline,
     render_pdf,
     write_pdf_and_record,
 )
+from automation.report_generator.pdf.formatting import key_value_table
+from automation.report_generator.pdf.sections import build_actions_taken, build_header
 from automation.report_generator.report_model import build_report_model
 
 
@@ -79,6 +83,66 @@ def test_render_pdf_escapes_special_characters_in_alert_name(
     assert len(pdf_bytes) > 1000
 
 
+def test_pdf_sections_escape_markup_and_display_unfinished_remediation(
+    db_connection,
+    make_incident,
+):
+    """
+    Parser-triggering <script> markup proves escaping is retained.
+
+    Arbitrary angle-bracket text can be harmlessly consumed by ReportLab,
+    whereas an unclosed tag makes Paragraph rendering fail when escaping is
+    removed.
+    """
+    incident = make_incident(
+        reference="INC-<script>",
+        status="CLOSED",
+        root_cause_analysis="RCA text.",
+    )
+    now = datetime.now(timezone.utc)
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO incident_events
+                (incident_id, sequence, occurred_at, actor, event_type, message, payload)
+            VALUES (%s, 1, %s, 'operator', 'NOTE', 'Incident <script>', '{}')
+            """,
+            (incident["id"], now),
+        )
+        cur.execute(
+            """
+            INSERT INTO remediation_attempts
+                (incident_id, playbook, attempt_number, started_at, result)
+            VALUES (%s, 'restart <script>', 1, %s, NULL)
+            """,
+            (incident["id"], now),
+        )
+
+    model = build_report_model(db_connection, incident["id"])
+
+    header = build_header(model)
+    assert header[2].text == "Reference: INC-&lt;script&gt;"
+
+    key_table = key_value_table({"label<script>": "value & more"})
+    assert isinstance(key_table._cellvalues[0][0], Paragraph)
+    assert key_table._cellvalues[0][0].text == "label&lt;script&gt;"
+
+    timeline = build_timeline(model)
+    timeline_table = next(
+        flowable for flowable in timeline if isinstance(flowable, Table)
+    )
+    assert isinstance(timeline_table._cellvalues[0][1], Paragraph)
+    assert timeline_table._cellvalues[0][1].text == "Incident &lt;script&gt;"
+    assert timeline_table._cellvalues[1][1].text == (
+        "Ran restart &lt;script&gt; (result: -)"
+    )
+
+    actions = build_actions_taken(model)
+    action_paragraph = actions[2]._flowables[0]._flowables[0]
+    assert action_paragraph.text == "restart &lt;script&gt; (attempt 1) → -"
+
+
 def test_render_pdf_renders_timeline_events_and_attempts(
     db_connection,
     make_incident,
@@ -132,7 +196,7 @@ def test_render_pdf_renders_timeline_events_and_attempts(
     )
 
     table_text = [
-        cell
+        cell.text if hasattr(cell, "text") else cell
         for flowable in flowables
         if hasattr(flowable, "_cellvalues")
         for row in flowable._cellvalues

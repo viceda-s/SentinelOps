@@ -99,7 +99,13 @@ def key_value_table(data: dict, *, nested: bool = False) -> Table:
     if not data:
         rows = [["-", "-"]]
     else:
-        rows = [[str(key), value_flowable(v, nested=nested)] for key, v in data.items()]
+        rows = [
+            [
+                Paragraph(escape_paragraph_text(str(key)), styles["ReportBody"]),
+                value_flowable(value, nested=nested),
+            ]
+            for key, value in data.items()
+        ]
 
     col_widths = NESTED_LABEL_VALUE_COL_WIDTHS if nested else None
     return label_value_table(rows, col_widths=col_widths)

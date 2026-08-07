@@ -40,7 +40,7 @@ def build_header(model: ReportModel) -> list[Flowable]:
         Paragraph("SentinelOps", styles["ReportTitle"]),
         Paragraph("Incident Report", styles["ReportSubtitle"]),
         Paragraph(
-            f"Reference: {model.incident['reference']}",
+            f"Reference: {escape_paragraph_text(model.incident['reference'])}",
             styles["ReportSubtitle"],
         ),
         Spacer(1, 2 * SECTION_SPACER_HEIGHT),
@@ -111,10 +111,18 @@ def build_timeline(model: ReportModel) -> list[Flowable]:
             else:
                 description = (
                     f"Ran {entry.payload['playbook']} "
-                    f"(result: {entry.payload['result']})"
+                    f"(result: {display(entry.payload.get('result'))})"
                 )
 
-            rows.append([format_timestamp(entry.occurred_at), description])
+            rows.append(
+                [
+                    format_timestamp(entry.occurred_at),
+                    Paragraph(
+                        escape_paragraph_text(str(description)),
+                        styles["ReportBody"],
+                    ),
+                ]
+            )
 
         timeline_table = Table(rows, colWidths=TIMELINE_COL_WIDTHS)
         timeline_table.setStyle(timeline_table_style(len(rows)))
@@ -139,7 +147,7 @@ def build_actions_taken(model: ReportModel) -> list[Flowable]:
             ListItem(
                 Paragraph(
                     escape_paragraph_text(
-                        f"{action.payload['playbook']} (attempt {action.payload['attempt_number']}) → {action.payload['result']}"
+                        f"{action.payload['playbook']} (attempt {action.payload['attempt_number']}) → {display(action.payload.get('result'))}"
                     ),
                     styles["ReportBody"],
                 ),
