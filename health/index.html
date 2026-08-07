@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>SentinelOps — Health</title>
+
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            margin: 2rem;
+            color: #222;
+        }
+
+        h1,
+        h2 {
+            margin-top: 2rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 2rem;
+        }
+
+        th,
+        td {
+            border: 1px solid #d0d0d0;
+            padding: 0.5rem;
+            text-align: left;
+        }
+
+        th {
+            background: #f5f5f5;
+        }
+
+        .critical {
+            color: #c62828;
+            font-weight: 600;
+        }
+
+        .warning {
+            color: #ef6c00;
+            font-weight: 600;
+        }
+
+        .healthy {
+            color: #2e7d32;
+            font-weight: 600;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>SentinelOps Health</h1>
+
+<h2>Services</h2>
+
+<table>
+    <thead>
+        <tr>
+            <th>Service</th>
+            <th>Status</th>
+            <th>Severity</th>
+        </tr>
+    </thead>
+
+    <tbody>
+    
+        <tr>
+            <td>api</td>
+
+            <td>
+                
+                    <span class="healthy">healthy</span>
+                
+            </td>
+
+            <td class="">
+                —
+            </td>
+        </tr>
+    
+        <tr>
+            <td>cadvisor</td>
+
+            <td>
+                
+                    <span class="healthy">healthy</span>
+                
+            </td>
+
+            <td class="">
+                —
+            </td>
+        </tr>
+    
+        <tr>
+            <td>nginx</td>
+
+            <td>
+                
+                    <span class="healthy">healthy</span>
+                
+            </td>
+
+            <td class="">
+                —
+            </td>
+        </tr>
+    
+        <tr>
+            <td>node-exporter</td>
+
+            <td>
+                
+                    <span class="healthy">healthy</span>
+                
+            </td>
+
+            <td class="">
+                —
+            </td>
+        </tr>
+    
+        <tr>
+            <td>postgres</td>
+
+            <td>
+                
+                    <span class="healthy">healthy</span>
+                
+            </td>
+
+            <td class="">
+                —
+            </td>
+        </tr>
+    
+        <tr>
+            <td>webhook-handler</td>
+
+            <td>
+                
+                    <span class="healthy">healthy</span>
+                
+            </td>
+
+            <td class="">
+                —
+            </td>
+        </tr>
+    
+        <tr>
+            <td>worker</td>
+
+            <td>
+                
+                    <span class="healthy">healthy</span>
+                
+            </td>
+
+            <td class="">
+                —
+            </td>
+        </tr>
+    
+    </tbody>
+</table>
+
+
+<h2>Open incidents by severity</h2>
+
+<table>
+    <thead>
+        <tr>
+            <th>Severity</th>
+            <th>Count</th>
+        </tr>
+    </thead>
+
+    <tbody>
+    
+        <tr>
+            <td colspan="2">No active incidents</td>
+        </tr>
+    
+    </tbody>
+</table>
+
+
+<h2>Open incidents</h2>
+
+
+<p>None active</p>
+
+
+
+<h2>Maintenance windows</h2>
+
+<p>None active</p>
+
+</body>
+</html>
