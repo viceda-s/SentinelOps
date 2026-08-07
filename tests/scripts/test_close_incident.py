@@ -64,7 +64,9 @@ def test_close_incident_requires_resolved_state(db_connection, make_incident):
     assert row["root_cause_analysis"] is None
 
 
-def test_close_incident_does_not_commit_transaction(db_connection, make_incident):
+def test_close_incident_does_not_commit_transaction(
+    db_connection, make_incident, committed_incident_cleanup
+):
     incident = make_incident(
         status="RESOLVED",
         resolved_at=datetime.now(timezone.utc),
@@ -73,6 +75,7 @@ def test_close_incident_does_not_commit_transaction(db_connection, make_incident
     # Commit the fixture's insert so it survives this test's rollback().
     # This test verifies that close_incident() does not commit its own transaction, so it needs a durable "before" state to roll back to.
     db_connection.commit()
+    committed_incident_cleanup.append(incident["id"])
 
     close_incident(
         db_connection,
@@ -97,19 +100,16 @@ def test_close_incident_does_not_commit_transaction(db_connection, make_incident
     assert row["status"] == "RESOLVED"
     assert row["root_cause_analysis"] is None
 
-    # This test commits its setup row so it survives the rollback under test.
-    # Because the fixture's teardown rollback can no longer remove it, clean it up explicitly so the test remains repeatable.
-    with db_connection.cursor() as cur:
-        cur.execute("DELETE FROM incidents WHERE id = %s", (incident["id"],))
-    db_connection.commit()
 
-
-def test_find_incident_by_reference_acquires_row_lock(db_connection, make_incident):
+def test_find_incident_by_reference_acquires_row_lock(
+    db_connection, make_incident, committed_incident_cleanup
+):
     incident = make_incident(
         status="RESOLVED",
         resolved_at=datetime.now(timezone.utc),
     )
     db_connection.commit()
+    committed_incident_cleanup.append(incident["id"])
 
     contender = psycopg2.connect(
         host=os.environ.get("POSTGRES_HOST", "localhost"),
@@ -132,7 +132,3 @@ def test_find_incident_by_reference_acquires_row_lock(db_connection, make_incide
         contender.rollback()
         contender.close()
         db_connection.rollback()
-
-        with db_connection.cursor() as cur:
-            cur.execute("DELETE FROM incidents WHERE id = %s", (incident["id"],))
-        db_connection.commit()
