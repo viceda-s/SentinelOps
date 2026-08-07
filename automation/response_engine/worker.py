@@ -1,21 +1,19 @@
 from __future__ import annotations
 
 import logging
-import os
 import time
 
-import psycopg2
-import psycopg2.extras
-import yaml
 from prometheus_client import REGISTRY, start_http_server
 
 import docker
 
 from .claim import claim_incident
+from .cmdb import load_cmdb
 from .collectors import (
     IncidentsCollector,
     QueueDepthCollector,
 )
+from .db import get_connection
 from .logging_config import configure_logging
 from .metrics import WORKER_HEARTBEAT_TIMESTAMP
 from .remediation import (
@@ -28,30 +26,6 @@ from .state_machine import transition
 POLL_INTERVAL_SECONDS = 5
 
 logger = logging.getLogger(__name__)
-
-
-def get_connection():
-    """
-    Create a PostgreSQL connection.
-
-    The worker owns the connection for its lifetime.
-    """
-
-    return psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "postgres"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        user=os.environ["RESPONSE_ENGINE_DB_USER"],
-        password=os.environ["RESPONSE_ENGINE_DB_PASSWORD"],
-        dbname=os.getenv("POSTGRES_DB", "postgres"),
-        cursor_factory=psycopg2.extras.RealDictCursor,
-    )
-
-
-def load_cmdb() -> dict:
-    """Load the CMDB."""
-
-    with open("/app/cmdb/services.yaml", encoding="utf-8") as f:
-        return yaml.safe_load(f)
 
 
 def dispatch(conn, client, incident: dict, cmdb: dict) -> None:

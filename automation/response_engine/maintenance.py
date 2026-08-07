@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import logging
+import os
+import time
 
 import requests
+from prometheus_client import start_http_server
 
+from .cmdb import load_cmdb
+from .db import get_connection
 from .handlers import ingest_alert
+from .logging_config import configure_logging
 from .metrics import (
+    ALERTMANAGER_REQUEST_FAILURES_TOTAL,
+    MAINTENANCE_HEARTBEAT_TIMESTAMP,
     SUPPRESSED_ALERTS_DISCOVERED_TOTAL,
     SUPPRESSED_ALERTS_DUPLICATE_TOTAL,
     SUPPRESSED_INCIDENTS_CREATED_TOTAL,
@@ -110,3 +118,76 @@ def process_suppressed_alert(conn, alert: dict, cmdb: dict) -> dict | None:
     SUPPRESSED_INCIDENTS_CREATED_TOTAL.inc()
 
     return incident
+
+
+def main() -> None:
+    """
+    Run the maintenance monitor.
+
+    Poll Alertmanager for active silenced alerts and record them as SUPPRESSED_MAINTENANCE incidents.
+
+    The process runs indefinitely until terminated.
+    """
+
+    configure_logging()
+
+    start_http_server(8000)
+
+    cmdb = load_cmdb()
+    conn = get_connection()
+
+    logger.info("Maintenance monitor started.")
+
+    while True:
+        try:
+            alerts = fetch_suppressed_alerts(
+                os.getenv(
+                    "ALERTMANAGER_URL",
+                    "http://alertmanager:9093",
+                )
+            )
+
+            for alert in alerts:
+                try:
+                    process_suppressed_alert(
+                        conn,
+                        alert,
+                        cmdb,
+                    )
+
+                    conn.commit()
+
+                    logger.debug(
+                        "Processed %s suppressed alerts.",
+                        len(alerts),
+                    )
+
+                except Exception:
+                    conn.rollback()
+
+                    logger.exception(
+                        "Failed to process suppressed alert.",
+                        extra={
+                            "fingerprint": alert.get("fingerprint"),
+                        },
+                    )
+
+            #
+            # The heartbeat only advances after a successful poll iteration completes.
+            #
+
+            MAINTENANCE_HEARTBEAT_TIMESTAMP.set_to_current_time()
+
+        except requests.exceptions.RequestException:
+            conn.rollback()
+
+            ALERTMANAGER_REQUEST_FAILURES_TOTAL.inc()
+
+            logger.exception("Failed to query Alertmanager.")
+
+        except Exception:
+            conn.rollback()
+
+            logger.exception("Maintenance monitor iteration failed.")
+
+        time.sleep(POLL_INTERVAL_SECONDS)
