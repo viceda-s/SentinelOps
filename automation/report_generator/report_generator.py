@@ -140,6 +140,8 @@ def main() -> None:
             conn = get_connection()
             try:
                 refresh_health_page(conn, cmdb)
+            except Exception:
+                logger.exception("Failed to refresh health page.")
             finally:
                 conn.close()
 

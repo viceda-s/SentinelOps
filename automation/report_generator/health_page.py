@@ -11,6 +11,9 @@ SEVERITY_RANK = {
     "warning": 1,
 }
 
+# Unknown severities rank after all known values so the health page degrades gracefully instead of failing.
+UNKNOWN_SEVERITY_RANK = len(SEVERITY_RANK)
+
 
 @dataclass
 class HealthPageModel:
@@ -69,8 +72,8 @@ def query_health_state(conn, cmdb: dict) -> HealthPageModel:
             service["severity"] = incident["severity"]
             continue
 
-        current_rank = SEVERITY_RANK[service["severity"]]
-        new_rank = SEVERITY_RANK[incident["severity"]]
+        current_rank = SEVERITY_RANK.get(service["severity"], UNKNOWN_SEVERITY_RANK)
+        new_rank = SEVERITY_RANK.get(incident["severity"], UNKNOWN_SEVERITY_RANK)
 
         if new_rank < current_rank:
             service["status"] = incident["status"]

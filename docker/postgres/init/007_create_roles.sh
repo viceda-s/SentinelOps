@@ -10,7 +10,7 @@ CREATE ROLE report_generator LOGIN PASSWORD '${REPORT_GENERATOR_DB_PASSWORD}';
 
 
 
-GRANT SELECT, INSERT, UPDATE ON incidents, incident_events, remediation_attempts TO response_engine;
+GRANT SELECT, INSERT, UPDATE ON incidents, incident_events, remediation_attempts, incident_reference_counters TO response_engine;
 GRANT USAGE ON SCHEMA public to response_engine;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO response_engine;
 GRANT SELECT ON incident_reports TO response_engine;
