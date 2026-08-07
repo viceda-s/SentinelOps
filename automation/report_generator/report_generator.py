@@ -133,30 +133,36 @@ def main() -> None:
     next_health_refresh = time.monotonic()
     next_pdf_file = time.monotonic()
 
+    conn = get_connection()
+
     while _running:
         now = time.monotonic()
 
         if now >= next_health_refresh:
-            conn = get_connection()
             try:
                 refresh_health_page(conn, cmdb)
             except Exception:
                 logger.exception("Failed to refresh health page.")
-            finally:
+                conn.rollback()
                 conn.close()
+                conn = get_connection()
 
             next_health_refresh = now + HEALTH_PAGE_REFRESH_SECONDS
 
         if now >= next_pdf_file:
-            conn = get_connection()
             try:
                 generate_pending_reports(conn)
-            finally:
+            except Exception:
+                logger.exception("Failed to scan for pending reports.")
+                conn.rollback()
                 conn.close()
+                conn = get_connection()
 
             next_pdf_file = now + PDF_SCAN_SECONDS
 
         time.sleep(1)
+
+    conn.close()
 
 
 if __name__ == "__main__":

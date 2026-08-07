@@ -2,11 +2,13 @@
 set -euo pipefail
 
 psql -v ON_ERROR_STOP=1 \
+    -v response_engine_password="$RESPONSE_ENGINE_DB_PASSWORD" \
+    -v report_generator_password="$REPORT_GENERATOR_DB_PASSWORD" \
     --username "$POSTGRES_USER" \
-    --dbname "$POSTGRES_DB" <<-EOSQL
+    --dbname "$POSTGRES_DB" <<-'EOSQL'
 
-CREATE ROLE response_engine LOGIN PASSWORD '${RESPONSE_ENGINE_DB_PASSWORD}';
-CREATE ROLE report_generator LOGIN PASSWORD '${REPORT_GENERATOR_DB_PASSWORD}';
+CREATE ROLE response_engine LOGIN PASSWORD :'response_engine_password';
+CREATE ROLE report_generator LOGIN PASSWORD :'report_generator_password';
 
 
 

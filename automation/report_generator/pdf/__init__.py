@@ -90,7 +90,7 @@ def write_pdf_and_record(conn, model: ReportModel, reports_dir: Path) -> None:
 
     tmp_path.replace(final_path)
 
-    checksum = hashlib.sha256(final_path.read_bytes()).hexdigest()
+    checksum = hashlib.sha256(pdf_bytes).hexdigest()
 
     with conn.cursor() as cur:
         cur.execute(
