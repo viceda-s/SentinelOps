@@ -191,3 +191,7 @@ def main() -> None:
             logger.exception("Maintenance monitor iteration failed.")
 
         time.sleep(POLL_INTERVAL_SECONDS)
+
+
+if __name__ == "__main__":
+    main()
