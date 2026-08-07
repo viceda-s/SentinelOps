@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from prometheus_client import Counter
 
-from automation.response_engine.handlers import handle_alert
+from automation.response_engine.handlers import handle_alert, ingest_alert
 from automation.response_engine.metrics import INCIDENTS_CREATED_TOTAL
 
 CMDB = {
@@ -150,3 +150,62 @@ def test_duplicate_alert_does_not_increment_created_counter(
         )
 
         assert cur.fetchone()["count"] == 2
+
+
+def test_ingest_alert_creates_new_incident(
+    db_connection,
+    committed_incident_cleanup,
+):
+    alert = _firing_alert()
+
+    incident = ingest_alert(
+        db_connection,
+        alert,
+        CMDB,
+        source="maintenance",
+    )
+
+    db_connection.commit()
+
+    committed_incident_cleanup.append(incident["id"])
+
+    assert incident["status"] == "NEW"
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT *
+            FROM incident_events
+            WHERE incident_id = %s
+            ORDER BY sequence
+            """,
+            (incident["id"],),
+        )
+
+        events = cur.fetchall()
+
+    assert len(events) == 1
+    assert events[0]["event_type"] == "CREATED"
+    assert events[0]["actor"] == "maintenance"
+
+
+def test_ingest_alert_is_policy_free(
+    db_connection,
+    committed_incident_cleanup,
+):
+    alert = _firing_alert()
+
+    alert["labels"]["job"] = "unknown-service"
+
+    incident = ingest_alert(
+        db_connection,
+        alert,
+        CMDB,
+        source="maintenance",
+    )
+
+    db_connection.commit()
+
+    committed_incident_cleanup.append(incident["id"])
+
+    assert incident["status"] == "NEW"
