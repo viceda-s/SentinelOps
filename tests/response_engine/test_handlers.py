@@ -55,7 +55,9 @@ def counter_value(counter: Counter, **labels) -> float:
     return 0.0
 
 
-def test_new_incident_increments_created_counter(db_connection):
+def test_new_incident_increments_created_counter(
+    db_connection, committed_incident_cleanup
+):
     alert = _firing_alert()
 
     before = counter_value(
@@ -65,6 +67,13 @@ def test_new_incident_increments_created_counter(db_connection):
     )
 
     handle_alert(db_connection, alert, CMDB)
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM incidents WHERE fingerprint = %s",
+            (alert["fingerprint"],),
+        )
+        committed_incident_cleanup.append(cur.fetchone()["id"])
 
     after = counter_value(
         INCIDENTS_CREATED_TOTAL,
@@ -87,10 +96,19 @@ def test_new_incident_increments_created_counter(db_connection):
         assert cur.fetchone()["count"] == 1
 
 
-def test_duplicate_alert_does_not_increment_created_counter(db_connection):
+def test_duplicate_alert_does_not_increment_created_counter(
+    db_connection, committed_incident_cleanup
+):
     alert = _firing_alert()
 
     handle_alert(db_connection, alert, CMDB)
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM incidents WHERE fingerprint = %s",
+            (alert["fingerprint"],),
+        )
+        committed_incident_cleanup.append(cur.fetchone()["id"])
 
     before = counter_value(
         INCIDENTS_CREATED_TOTAL,

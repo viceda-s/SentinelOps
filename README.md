@@ -10,7 +10,7 @@ The project was built to explore how production incident response systems coordi
 
 # Current Status
 
-**Phase 1 is complete and fully verified against real infrastructure.** Phase 2 ("the operational layer") is in progress; operational visibility (issue #4) is complete and merged.
+**Phase 1 is complete and fully verified against real infrastructure.** Phase 2 ("the operational layer") is in progress; operational visibility (issue #4) and incident reporting (issue #5) are both complete and merged.
 
 The complete autonomous incident pipeline has been implemented and validated:
 
@@ -31,12 +31,10 @@ Phase 1 includes:
 * Operational runbooks
 * Architecture Decision Records (ADRs)
 
-Phase 2 builds an operational layer on top of the Phase 1 loop. Shipped so far:
-
-* `/metrics` endpoints on both the worker and webhook handler
-* Live SLA breach detection, driven by per-service `sla` fields in the CMDB
-* Self-monitoring for the response engine's own processes (`ResponseEngineDown`, worker heartbeat)
-* A second Grafana dashboard ("SentinelOps — Response Engine") showing MTTR, MTTA, queue depth, remediation success rate, and SLA breaches, calculated from real incidents
+**Phase 2** extends the platform with an operational layer: SLA tracking,
+self-monitoring, and `/metrics` endpoints (issue #4), plus a live health
+page, PDF incident reports, and an operator workflow for closing incidents
+with a manual Root Cause Analysis (RCA) (issue #5).
 
 Future phases focus on extending the platform rather than completing the core incident response workflow.
 
@@ -138,7 +136,18 @@ Recovery verification supports:
 * MTTR/MTTA histograms (`sentinelops_incident_resolution_seconds`, `sentinelops_incident_response_seconds`), observed directly in the state machine's `transition()`
 * Second Grafana dashboard ("SentinelOps — Response Engine"): MTTR, MTTA, queue depth, worker heartbeat age, open incidents by status, remediation success rate, SLA breaches over time — all calculated from real recorded incidents, not seeded data
 
+## Incident Reporting
+
+* Dedicated `report-generator` service
+* Static health page served by nginx
+* Automatic PDF incident reports generated when incidents are closed
+* Operator-driven incident closure through `close_incident.sh`
+* Unified incident timeline combining lifecycle events and remediation history
+* Conditional diagnostic evidence when `collect_diagnostics` was executed
+* Manual Root Cause Analysis (RCA) included in every completed report
+
 ---
+
 # Documentation
 
 The repository is intentionally split into focused documents. The README provides an overview of the project, while the documents below describe the architecture, design rationale, operational procedures, and engineering decisions in greater detail.
@@ -180,6 +189,8 @@ cp .env.example .env
 
 Adjust any values if required for your environment.
 
+The environment file also contains dedicated PostgreSQL credentials for the response engine and report generator. Optional tuning parameters such as the health page refresh interval and PDF scan interval have sensible built-in defaults and normally do not need to be configured.
+
 ## Validate the environment
 
 Before starting the platform, verify that all prerequisites and configuration are valid:
@@ -200,12 +211,30 @@ The bootstrap script validates the environment, starts the Docker Compose stack,
 
 Once the platform is running, the primary interfaces are:
 
-| Service      | URL                   |
-| ------------ | --------------------- |
-| Grafana      | http://localhost:3001 |
-| Prometheus   | http://localhost:9090 |
-| Alertmanager | http://localhost:9093 |
-| API          | http://localhost:5001 |
+| Service          | URL                             |
+| ---------------- | -------------------------------- |
+| Grafana          | http://localhost:3001            |
+| Prometheus       | http://localhost:9090            |
+| Alertmanager     | http://localhost:9093            |
+| API              | http://localhost:5001            |
+| Health page      | http://localhost:8081/health/    |
+| Incident reports | http://localhost:8081/reports/   |
+
+## Closing an incident
+
+Resolved incidents remain open for operator review until a Root Cause
+Analysis has been written.
+
+Launch the guided workflow with:
+
+```bash
+./automation/scripts/close_incident.sh INCIDENT_REFERENCE
+```
+
+The script opens your configured editor with an RCA template. After saving,
+the incident transitions to `CLOSED`. The `report-generator` service picks up
+newly closed incidents automatically and publishes a PDF report under
+`/reports/` shortly after.
 
 ## Shut down the environment
 
@@ -252,11 +281,21 @@ The chaos tool operates only on services defined in the project's Docker Compose
 ```text
 SentinelOps/
 ├── automation/
-│   ├── response_engine/     # Incident response engine
-│   └── scripts/             # Bootstrap, teardown, chaos and validation tools
+│   ├── response_engine/     # Webhook handler, worker, remediation logic
+│   ├── report_generator/    # Health page, PDF renderer, templates
+│   └── scripts/             # Operational tooling
 ├── cmdb/                    # Service configuration
 ├── diagnostics/             # Collected diagnostics
 ├── docker/                  # Container definitions and configuration
+│   ├── api/
+│   ├── report-generator/
+│   ├── webhook-handler/
+│   ├── worker/
+│   ├── nginx/
+│   ├── postgres/
+│   ├── prometheus/
+│   ├── grafana/
+│   └── alertmanager/
 ├── docs/
 │   ├── adr/                 # Architecture Decision Records
 │   ├── runbooks/            # Operational runbooks
@@ -284,18 +323,21 @@ Additional Phase 1 simplifications include:
 * Local secrets stored in `.env`, which is excluded from version control.
 * Local-only chaos tooling designed to operate exclusively on this project's Docker Compose stack.
 
+Phase 2 adds two more unauthenticated nginx routes, `/health/` and `/reports/`. `/reports/` is the more sensitive of the two: incident reports include collected diagnostics (container logs and stats) and the operator-written Root Cause Analysis, and references are sequential (`INC-2026-001.pdf`, `INC-2026-002.pdf`, ...) and therefore easy to enumerate. As with the rest of Phase 1's unauthenticated surface, this is an accepted lab-only trade-off, not an oversight — a production deployment would put both routes behind authentication.
+
+The response engine and report generator connect to PostgreSQL as dedicated least-privilege roles (`response_engine`, `report_generator`) rather than the shared superuser credential; see `docker/postgres/init/007_create_roles.sh` for the exact grants.
+
 These trade-offs are appropriate for a learning environment but would be replaced in production with least-privilege credentials, authenticated monitoring endpoints, and a restricted interface to the container runtime.
 
 ---
 
 # Future Work
 
-Phase 1 establishes the complete autonomous incident response loop. Future phases extend the platform with additional operational capabilities rather than changing its core architecture. Phase 2 operational visibility (SLA tracking, self-monitoring, `/metrics`) is complete — see Features above.
+Phase 1 establishes the complete autonomous incident response loop. Future phases extend the platform with additional operational capabilities rather than changing its core architecture. Phase 2 operational visibility (SLA tracking, self-monitoring, `/metrics`) and incident reporting (health page, PDF reports, RCA workflow) are complete — see Features above.
 
 ### Incident Management
 
 * Maintenance windows
-* Incident reporting
 
 ### Automation
 

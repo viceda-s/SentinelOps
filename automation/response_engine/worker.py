@@ -40,8 +40,8 @@ def get_connection():
     return psycopg2.connect(
         host=os.getenv("POSTGRES_HOST", "postgres"),
         port=int(os.getenv("POSTGRES_PORT", "5432")),
-        user=os.environ["POSTGRES_USER"],
-        password=os.environ["POSTGRES_PASSWORD"],
+        user=os.environ["RESPONSE_ENGINE_DB_USER"],
+        password=os.environ["RESPONSE_ENGINE_DB_PASSWORD"],
         dbname=os.getenv("POSTGRES_DB", "postgres"),
         cursor_factory=psycopg2.extras.RealDictCursor,
     )
