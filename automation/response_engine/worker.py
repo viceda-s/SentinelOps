@@ -25,7 +25,7 @@ from .remediation import (
 from .sla import check_sla_breaches
 from .state_machine import transition
 
-POLL_INTERVAL = 5
+POLL_INTERVAL_SECONDS = 5
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ def main() -> None:
 
             if incident is None:
                 conn.commit()
-                time.sleep(POLL_INTERVAL)
+                time.sleep(POLL_INTERVAL_SECONDS)
                 continue
 
             logger.info(
@@ -179,7 +179,7 @@ def main() -> None:
                 },
             )
 
-            time.sleep(POLL_INTERVAL)
+            time.sleep(POLL_INTERVAL_SECONDS)
 
         #
         # Unexpected programming/configuration errors.
@@ -199,7 +199,7 @@ def main() -> None:
                 },
             )
 
-            time.sleep(POLL_INTERVAL)
+            time.sleep(POLL_INTERVAL_SECONDS)
 
 
 if __name__ == "__main__":
