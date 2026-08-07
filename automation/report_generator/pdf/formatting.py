@@ -24,6 +24,15 @@ def display(value) -> str:
     return "-" if value is None else str(value)
 
 
+def escape_paragraph_text(text: str) -> str:
+    """
+    Escape text before embedding it in a ReportLab Paragraph.
+
+    ReportLab parses Paragraph content as XML-like markup, so user- or alert-controlled text must escape '&', '<', and '>' to avoid parser errors or unintended formatting.
+    """
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def format_timestamp(value: datetime | None) -> str:
     """Format an optional timestamp for the incident report."""
     if value is None:
@@ -72,12 +81,12 @@ def value_flowable(value, *, nested: bool = False) -> Flowable:
         return key_value_table(value, nested=True)
 
     text = str(value)
+    escaped_text = escape_paragraph_text(text)
 
     if "\n" in text:
-        html_text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        return Paragraph(html_text.replace("\n", "<br/>"), styles["LogText"])
+        return Paragraph(escaped_text.replace("\n", "<br/>"), styles["LogText"])
 
-    return Paragraph(text, styles["ReportBody"])
+    return Paragraph(escaped_text, styles["ReportBody"])
 
 
 def key_value_table(data: dict, *, nested: bool = False) -> Table:

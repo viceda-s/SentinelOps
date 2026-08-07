@@ -11,10 +11,13 @@ from automation.report_generator.pdf import (
 from automation.report_generator.report_model import build_report_model
 
 
-def test_render_pdf_returns_nonempty_pdf_bytes(db_connection, make_incident):
+def test_render_pdf_returns_nonempty_pdf_bytes(
+    db_connection,
+    make_incident,
+):
     incident = make_incident(
         status="CLOSED",
-        root_cause_analysis=("RCA text."),
+        root_cause_analysis="RCA text.",
     )
 
     model = build_report_model(db_connection, incident["id"])
@@ -25,17 +28,73 @@ def test_render_pdf_returns_nonempty_pdf_bytes(db_connection, make_incident):
     assert len(pdf_bytes) > 1000
 
 
-def test_render_pdf_renders_timeline_with_events_and_attempts(
-    db_connection, make_incident
+def test_render_pdf_escapes_special_characters_in_root_cause_analysis(
+    db_connection,
+    make_incident,
 ):
-    # Exercises both branches of render_pdf()'s timeline loop -- an empty
-    # timeline (the other render test) never runs this code at all, which
-    # let two real bugs (accidental tuples passed to Paragraph()) ship
-    # despite the "nonempty PDF bytes" test passing.
+    """
+    Regression test for ReportLab Paragraph escaping.
+
+    Tag-like input is interpreted as markup by ReportLab. The PDF renderer
+    must escape operator-authored text before embedding it in a Paragraph.
+    An unclosed tag such as "<script>" makes ReportLab's parser raise, so
+    this input only passes if the renderer escapes it first -- unlike a
+    closed tag pair, which ReportLab silently consumes without erroring.
+    """
     incident = make_incident(
         status="CLOSED",
-        root_cause_analysis=("RCA text."),
+        root_cause_analysis=(
+            "Restarted <script>alert(1) after latency exceeded 500ms. "
+            "Root cause: cache & backend both degraded when load > threshold."
+        ),
     )
+
+    model = build_report_model(db_connection, incident["id"])
+
+    pdf_bytes = render_pdf(model)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert len(pdf_bytes) > 1000
+
+
+def test_render_pdf_escapes_special_characters_in_alert_name(
+    db_connection,
+    make_incident,
+):
+    """
+    Alert metadata is also rendered inside Paragraph flowables and must be
+    escaped before rendering.
+    """
+    incident = make_incident(
+        status="CLOSED",
+        alert_name="Disk <script>alert(1) usage high",
+        root_cause_analysis="RCA text.",
+    )
+
+    model = build_report_model(db_connection, incident["id"])
+
+    pdf_bytes = render_pdf(model)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert len(pdf_bytes) > 1000
+
+
+def test_render_pdf_renders_timeline_events_and_attempts(
+    db_connection,
+    make_incident,
+):
+    """
+    Exercise both timeline entry types.
+
+    A valid PDF only proves ReportLab serialized the document. Timeline
+    content is verified by inspecting the flowables produced before
+    rendering.
+    """
+    incident = make_incident(
+        status="CLOSED",
+        root_cause_analysis="RCA text.",
+    )
+
     now = datetime.now(timezone.utc)
 
     with db_connection.cursor() as cur:
@@ -47,6 +106,7 @@ def test_render_pdf_renders_timeline_with_events_and_attempts(
             """,
             (incident["id"], now),
         )
+
         cur.execute(
             """
             INSERT INTO remediation_attempts
@@ -57,39 +117,48 @@ def test_render_pdf_renders_timeline_with_events_and_attempts(
         )
 
     model = build_report_model(db_connection, incident["id"])
-    assert len(model.timeline) == 2  # sanity: both branches will run
+
+    assert len(model.timeline) == 2
 
     pdf_bytes = render_pdf(model)
 
     assert pdf_bytes.startswith(b"%PDF")
     assert len(pdf_bytes) > 1000
 
-    # A valid PDF only proves ReportLab serialized the document. Timeline content is verified by inspecting the flowables produced by build_timeline(), which catches regressions before rendering (for example, accidentally skipping the iteration over model.timeline).
     flowables = build_timeline(model)
 
-    heading_text = " ".join(
+    paragraphs_text = " ".join(
         flowable.text for flowable in flowables if hasattr(flowable, "text")
     )
-    table_cells = [
+
+    table_text = [
         cell
         for flowable in flowables
         if hasattr(flowable, "_cellvalues")
         for row in flowable._cellvalues
         for cell in row
     ]
-    rendered_text = heading_text + " " + " ".join(table_cells)
+
+    rendered_text = " ".join(
+        [
+            paragraphs_text,
+            *table_text,
+        ]
+    )
 
     assert "CREATED" in rendered_text or "Incident created" in rendered_text
     assert "restart_service" in rendered_text
     assert "success" in rendered_text
 
 
-def test_write_pdf_and_record_writes_file_and_insert_row(
-    db_connection, make_incident, tmp_path
+def test_write_pdf_and_record_writes_file_and_inserts_row(
+    db_connection,
+    make_incident,
+    tmp_path,
 ):
     incident = make_incident(
         status="CLOSED",
-        root_cause_analysis=("RCA text."),
+        root_cause_analysis="RCA text.",
     )
 
     model = build_report_model(db_connection, incident["id"])
@@ -97,11 +166,11 @@ def test_write_pdf_and_record_writes_file_and_insert_row(
     write_pdf_and_record(db_connection, model, tmp_path)
 
     report_path = tmp_path / f"{incident['reference']}.pdf"
-    tmp_path_marker = report_path.with_suffix(".pdf.tmp")
+    tmp_report_path = report_path.with_suffix(".pdf.tmp")
 
     assert report_path.exists()
     assert report_path.name == f"{incident['reference']}.pdf"
-    assert not tmp_path_marker.exists()
+    assert not tmp_report_path.exists()
 
     with db_connection.cursor() as cur:
         cur.execute(

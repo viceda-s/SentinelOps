@@ -20,6 +20,7 @@ from reportlab.platypus import (
 from ..report_model import ReportModel
 from .formatting import (
     display,
+    escape_paragraph_text,
     format_bool,
     format_duration,
     format_timestamp,
@@ -73,7 +74,7 @@ def build_detection_details(model: ReportModel) -> list[Flowable]:
     return [
         Paragraph("Detection Details", styles["SectionHeading"]),
         Paragraph(
-            f"<b>Alert Name:</b> {display(incident['alert_name'])}",
+            f"<b>Alert Name:</b> {escape_paragraph_text(display(incident['alert_name']))}",
             styles["ReportBody"],
         ),
         Paragraph("Labels", styles["SubHeading"]),
@@ -137,7 +138,9 @@ def build_actions_taken(model: ReportModel) -> list[Flowable]:
         items = [
             ListItem(
                 Paragraph(
-                    f"{action.payload['playbook']} (attempt {action.payload['attempt_number']}) → {action.payload['result']}",
+                    escape_paragraph_text(
+                        f"{action.payload['playbook']} (attempt {action.payload['attempt_number']}) → {action.payload['result']}"
+                    ),
                     styles["ReportBody"],
                 ),
                 leftIndent=20,
@@ -214,10 +217,12 @@ def build_recovery_sla(model: ReportModel) -> list[Flowable]:
 
 
 def build_root_cause_analysis(model: ReportModel) -> list[Flowable]:
+    rca_text = model.incident.get("root_cause_analysis") or "PENDING RCA"
+
     return [
         Paragraph("Root Cause Analysis", styles["SectionHeading"]),
         Paragraph(
-            model.incident.get("root_cause_analysis") or "PENDING RCA",
+            escape_paragraph_text(rca_text),
             styles["RCABody"],
         ),
     ]
