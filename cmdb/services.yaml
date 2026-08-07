@@ -119,3 +119,19 @@ services:
     sla:
       response_minutes: 5
       resolution_minutes: 60
+
+  maintenance-monitor:
+    container_name: sentinelops-maintenance-monitor
+    owner: platform-team
+    escalation_contact: platform-oncall@email.local
+    tier: prod
+    criticality: high
+    runbook: docs/runbooks/service-down.md
+    verification:
+      type: http
+      url: http://maintenance-monitor:8000/metrics
+    playbooks:
+      MaintenanceMonitorDown: none
+    sla:
+      response_minutes: 5
+      resolution_minutes: 60
