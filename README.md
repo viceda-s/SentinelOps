@@ -323,6 +323,10 @@ Additional Phase 1 simplifications include:
 * Local secrets stored in `.env`, which is excluded from version control.
 * Local-only chaos tooling designed to operate exclusively on this project's Docker Compose stack.
 
+Phase 2 adds two more unauthenticated nginx routes, `/health/` and `/reports/`. `/reports/` is the more sensitive of the two: incident reports include collected diagnostics (container logs and stats) and the operator-written Root Cause Analysis, and references are sequential (`INC-2026-001.pdf`, `INC-2026-002.pdf`, ...) and therefore easy to enumerate. As with the rest of Phase 1's unauthenticated surface, this is an accepted lab-only trade-off, not an oversight — a production deployment would put both routes behind authentication.
+
+The response engine and report generator connect to PostgreSQL as dedicated least-privilege roles (`response_engine`, `report_generator`) rather than the shared superuser credential; see `docker/postgres/init/007_create_roles.sh` for the exact grants.
+
 These trade-offs are appropriate for a learning environment but would be replaced in production with least-privilege credentials, authenticated monitoring endpoints, and a restricted interface to the container runtime.
 
 ---
