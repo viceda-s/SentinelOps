@@ -76,16 +76,20 @@ def configure_logging(level: int = logging.INFO) -> None:
     """
     Configure process-wide JSON logging.
 
-    Safe to call multiple times.
+    Safe to call multiple times: repeated calls replace only the handler
+    this function previously installed, leaving handlers added by anything
+    else (e.g. pytest's caplog, or a WSGI server's own logging setup) intact.
     """
 
     root = logging.getLogger()
 
-    if root.handlers:
-        root.handlers.clear()
+    for existing in list(root.handlers):
+        if getattr(existing, "_sentinelops_json_handler", False):
+            root.removeHandler(existing)
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
+    handler._sentinelops_json_handler = True
 
     root.addHandler(handler)
     root.setLevel(level)
