@@ -78,12 +78,11 @@ services:
     verification:
       type: docker-health
     playbooks:
-      # DiskPressure -> disk_cleanup will be added once the Phase 2 playbook
-      # is implemented (see IMPLEMENTED_PLAYBOOKS in automation/response_engine/playbooks.py). Until then, DiskPressure firing for postgres has no configured playbook and escalates via resolve_cmdb_entry()'s "no mapping" fallback.
       ServiceDown: restart_service
       ContainerRestartLoop: collect_diagnostics
       HighCPU: collect_diagnostics
       HighMemory: collect_diagnostics
+      DiskPressure: disk_cleanup
     sla:
       response_minutes: 5
       resolution_minutes: 60
