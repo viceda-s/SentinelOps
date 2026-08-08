@@ -24,6 +24,7 @@ def record_note_event(
     actor: str,
     message: str,
     payload: dict | None = None,
+    silence_id: str | None = None,
 ) -> None:
     """
     Append a NOTE event to an incident's timeline.
@@ -35,6 +36,12 @@ def record_note_event(
     Deliberately narrow: computes the next sequence and inserts the event,
     nothing else. Callers own finding the right incident, deciding whether
     a NOTE is the right response, and what the message should say.
+
+    silence_id optionally records the Alertmanager silence this NOTE is about.
+    When set, incident_events_maintenance_silence_idx guarantees at most one
+    such NOTE per (incident, silence) and raises UniqueViolation on a repeat.
+    Callers decide whether that violation means "already recorded" or is a
+    genuine error -- this function does not catch it.
 
     The caller owns the transaction. This function MUST NOT call commit()
     or rollback().
@@ -65,7 +72,8 @@ def record_note_event(
                 actor,
                 event_type,
                 message,
-                payload
+                payload,
+                silence_id
             )
             VALUES (
                 %s,
@@ -73,6 +81,7 @@ def record_note_event(
                 NOW(),
                 %s,
                 'NOTE',
+                %s,
                 %s,
                 %s
             )
@@ -83,6 +92,7 @@ def record_note_event(
                 actor,
                 message,
                 Json(payload),
+                silence_id,
             ),
         )
 

@@ -29,13 +29,13 @@ logger = logging.getLogger(__name__)
 
 def fetch_suppressed_alerts(alertmanager_url: str) -> list[dict]:
     """
-    Fetch all active, silenced alerts from Alertmanager
+    Fetch active alerts currently suppressed by Alertmanager silences.
 
-    Alerts are returned ordered by their start time (oldest first) to provide deterministic processing order.
+    Alerts are returned in chronological order by ``startsAt`` so that processing order is deterministic.
 
     Raises:
         requests.exceptions.RequestException:
-            If the Alertmanager API request fails.
+            If the Alertmanager request fails.
     """
 
     response = requests.get(
@@ -52,11 +52,7 @@ def fetch_suppressed_alerts(alertmanager_url: str) -> list[dict]:
     alerts = response.json()
 
     #
-    # Parse to datetime rather than sorting the raw strings: Alertmanager's
-    # Go RFC3339Nano marshaling trims trailing zero fractional digits, so
-    # two alerts in the same response can have different sub-second
-    # precision (e.g. "...:00Z" vs "...:00.5Z"). Lexicographic string
-    # comparison of those isn't equivalent to chronological order.
+    # Parse timestamps before sorting. Alertmanager uses RFC3339Nano and may omit trailing zero fractional digits, so lexicographic ordering can differ from chronological ordering (for example, "...:00Z" vs "...:00.5Z").
     #
 
     alerts.sort(
@@ -70,9 +66,9 @@ def fetch_suppressed_alerts(alertmanager_url: str) -> list[dict]:
 
 def suppressed_incident_exists(conn, fingerprint: str, starts_at: str) -> bool:
     """
-    Check whether a suppressed maintenance incident already exists.
+    Check whether this Alertmanager firing has already been recorded as a SUPPRESSED_MAINTENANCE incident.
 
-    Deduplication uses the Alertmanager fingerprint together with the alert's original startsAt timestamp so that an alert which resolves and later re-fires during the same maintenance window is treated as a new incident.
+    The fingerprint identifies the alert identity; ``startsAt`` distinguishes a later firing of the same alert after it has resolved.
     """
 
     with conn.cursor() as cur:
@@ -93,12 +89,9 @@ def suppressed_incident_exists(conn, fingerprint: str, starts_at: str) -> bool:
 
 def find_suppressed_incident(conn, fingerprint: str, starts_at: str) -> dict | None:
     """
-    Look up the SUPPRESSED_MAINTENANCE incident for (fingerprint, starts_at),
-    if one exists.
+    Return the existing SUPPRESSED_MAINTENANCE incident for this firing, if any.
 
-    Same predicate as suppressed_incident_exists(), returning the row
-    instead of a boolean -- used to reconcile the race
-    incidents_suppressed_maintenance_fingerprint_idx exists to catch.
+    This uses the same identity as ``suppressed_incident_exists()`` and is used when the database reports a concurrent duplicate during ingestion.
     """
 
     with conn.cursor() as cur:
@@ -119,14 +112,10 @@ def find_suppressed_incident(conn, fingerprint: str, starts_at: str) -> dict | N
 
 def find_actionable_incident(conn, fingerprint: str) -> dict | None:
     """
-    Look up the open, actionable incident for this fingerprint, if one
-    exists -- i.e. the one guarded by incidents_active_fingerprint_idx.
+    Return the open actionable incident for this fingerprint, if one exists.
 
-    Mirrors handlers.py's handle_alert() UniqueViolation lookup: a
-    suppressed alert can collide with an incident that's still being
-    worked (created via the webhook before a maintenance window started
-    for the same service). That incident's lifecycle stays untouched --
-    see process_suppressed_alert().
+    This is the incident protected by ``incidents_active_fingerprint_idx``.
+    A maintenance-suppressed alert may collide with it when the incident was created before the maintenance window began. Its lifecycle remains unchanged; the maintenance path only records reconciliation notes.
     """
 
     with conn.cursor() as cur:
@@ -150,34 +139,18 @@ def find_actionable_incident(conn, fingerprint: str) -> dict | None:
 
 def process_suppressed_alert(conn, alert: dict, cmdb: dict) -> dict | None:
     """
-    Process a suppressed Alertmanager alert.
+    Record an active Alertmanager-suppressed alert as a maintenance incident.
 
-    If the alert has already been recorded as a SUPPRESSED_MAINTENANCE
-    incident, no new incident is created.
+    A previously recorded SUPPRESSED_MAINTENANCE incident is treated as a duplicate and does not create another incident.
 
-    A UniqueViolation on ingest_alert()'s INSERT means this fingerprint
-    collided with an existing incident on one of two indexes, and which
-    one determines the response:
+    If ingestion conflicts with an existing actionable incident, that incident remains unchanged and receives at most one reconciliation NOTE per active Alertmanager silence.
 
-    - incidents_active_fingerprint_idx: an actionable incident
-      (NEW/ACKNOWLEDGED/IN_PROGRESS/ESCALATED) already exists for this
-      fingerprint -- e.g. the webhook created it before this maintenance
-      window started. That incident is already being worked; a NOTE is
-      recorded on it, and its lifecycle is left untouched. It does not
-      become SUPPRESSED_MAINTENANCE.
-    - incidents_suppressed_maintenance_fingerprint_idx: another
-      SUPPRESSED_MAINTENANCE incident already exists for this exact
-      (fingerprint, startsAt) -- suppressed_incident_exists()'s
-      check-then-insert lost a race (e.g. an overlapping poll). A true
-      duplicate: a NOTE is recorded on the existing suppressed incident.
+    If ingestion conflicts with an existing SUPPRESSED_MAINTENANCE incident, the existing incident receives a duplicate NOTE.
 
-    If neither lookup finds a row, the UniqueViolation is unexplained --
-    re-raised rather than swallowed, since that means the uniqueness
-    assumptions above have drifted from the schema.
+    Unexpected uniqueness violations are re-raised rather than silently reconciled.
 
     Returns:
-        The created (or reconciled) incident, or None if the alert was
-        an already-recorded suppression duplicate.
+        The created or reconciled incident, or None for an already-recorded maintenance suppression.
     """
 
     SUPPRESSED_ALERTS_DISCOVERED_TOTAL.inc()
@@ -219,13 +192,53 @@ def process_suppressed_alert(conn, alert: dict, cmdb: dict) -> dict | None:
         actionable_incident = find_actionable_incident(conn, fingerprint)
 
         if actionable_incident is not None:
-            record_note_event(
-                conn,
-                actionable_incident,
-                actor="maintenance",
-                message="Alert also matched an active maintenance window.",
-                payload=alert,
-            )
+            #
+            # Each Alertmanager silence represents a separate maintenance action, so reconcile each silence independently. The partial unique index prevents repeated polls from recording the same silence more than once on this incident.
+            #
+            # If the silence expired before this poll, silencedBy may be empty.
+            # There is then no stable identity to deduplicate, so record nothing.
+            #
+            for silence_id in alert["status"]["silencedBy"]:
+                with conn.cursor() as cur:
+                    cur.execute("SAVEPOINT maintenance_note")
+
+                    try:
+                        record_note_event(
+                            conn,
+                            actionable_incident,
+                            actor="maintenance",
+                            message=(
+                                "Alert also matched an active maintenance "
+                                f"window (silence {silence_id})."
+                            ),
+                            payload=alert,
+                            silence_id=silence_id,
+                        )
+
+                    except psycopg2.errors.UniqueViolation as exc:
+                        #
+                        # Only the maintenance-silence index means this NOTE was already recorded. Other uniqueness violations, including a concurrent sequence collision, must propagate to the outer transaction handler.
+                        #
+                        if (
+                            exc.diag.constraint_name
+                            != "incident_events_maintenance_silence_idx"
+                        ):
+                            raise
+
+                        cur.execute("ROLLBACK TO SAVEPOINT maintenance_note")
+                        cur.execute("RELEASE SAVEPOINT maintenance_note")
+
+                        logger.debug(
+                            "Reconciliation NOTE already recorded for silence.",
+                            extra={
+                                "incident_id": actionable_incident["id"],
+                                "silence_id": silence_id,
+                            },
+                        )
+
+                    else:
+                        cur.execute("RELEASE SAVEPOINT maintenance_note")
+
             return actionable_incident
 
         suppressed_incident = find_suppressed_incident(conn, fingerprint, starts_at)
@@ -252,9 +265,9 @@ def main() -> None:
     """
     Run the maintenance monitor.
 
-    Poll Alertmanager for active silenced alerts and record them as SUPPRESSED_MAINTENANCE incidents.
+    Poll Alertmanager continuously and record active silenced alerts as SUPPRESSED_MAINTENANCE incidents.
 
-    The process runs indefinitely until terminated.
+    The process continues after individual alert, Alertmanager, and unexpected iteration failures. The heartbeat advances only after an entire poll completes successfully.
     """
 
     configure_logging()

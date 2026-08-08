@@ -1,6 +1,7 @@
 from unittest.mock import Mock, patch
 
 import psycopg2
+import pytest
 import requests
 
 from automation.response_engine.maintenance import (
@@ -13,6 +14,7 @@ from automation.response_engine.metrics import (
 from tests.response_engine.helpers import (
     CMDB,
     _firing_alert,
+    _suppressed_alert,
     counter_value,
 )
 
@@ -193,7 +195,7 @@ def test_process_suppressed_alert_notes_existing_actionable_incident_without_sup
     # up suppressed. Before this fix, ingest_alert()'s UniqueViolation
     # propagated uncaught out of process_suppressed_alert() every poll,
     # forever, and the incident was never touched at all.
-    alert = _firing_alert()
+    alert = _suppressed_alert("sil-test")
 
     actionable_incident = make_incident(
         fingerprint=alert["fingerprint"],
@@ -221,7 +223,7 @@ def test_process_suppressed_alert_notes_existing_actionable_incident_without_sup
 
         cur.execute(
             """
-            SELECT actor, event_type, message
+            SELECT actor, event_type, message, silence_id
             FROM incident_events
             WHERE incident_id = %s
             ORDER BY sequence DESC
@@ -234,6 +236,7 @@ def test_process_suppressed_alert_notes_existing_actionable_incident_without_sup
     assert event["event_type"] == "NOTE"
     assert event["actor"] == "maintenance"
     assert "maintenance window" in event["message"]
+    assert event["silence_id"] == "sil-test"
 
     # No orphaned SUPPRESSED_MAINTENANCE row was created for this fingerprint.
     with db_connection.cursor() as cur:
@@ -249,18 +252,16 @@ def test_process_suppressed_alert_notes_existing_actionable_incident_without_sup
         assert cur.fetchone()["count"] == 0
 
 
-def test_process_suppressed_alert_does_not_retry_after_reconciling_actionable_collision(
+def test_process_suppressed_alert_still_dedups_after_intervening_event(
     db_connection,
     make_incident,
     committed_incident_cleanup,
 ):
-    # A second poll for the same colliding alert must not raise again or
-    # append a second NOTE for every subsequent poll -- suppressed_incident_exists()
-    # only guards SUPPRESSED_MAINTENANCE rows, so the reconciliation path
-    # runs on every poll for as long as the actionable incident stays open.
-    # That's expected (not a regression this PR needs to fix), but the
-    # process itself must not error out.
-    alert = _firing_alert()
+    # The decisive test: a "skip if the last event is identical" guard was
+    # rejected because any intervening event re-enables it. Dedup keys on the
+    # silence identity, not timeline position, so an unrelated event landing
+    # in between must not produce a second NOTE.
+    alert = _suppressed_alert("sil-test")
 
     actionable_incident = make_incident(
         fingerprint=alert["fingerprint"],
@@ -269,14 +270,26 @@ def test_process_suppressed_alert_does_not_retry_after_reconciling_actionable_co
     db_connection.commit()
     committed_incident_cleanup.append(actionable_incident["id"])
 
-    first = process_suppressed_alert(db_connection, alert, CMDB)
+    process_suppressed_alert(db_connection, alert, CMDB)
     db_connection.commit()
 
-    second = process_suppressed_alert(db_connection, alert, CMDB)
+    with db_connection.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO incident_events (
+                incident_id, sequence, occurred_at, actor,
+                event_type, message, payload
+            )
+            SELECT %s, COALESCE(MAX(sequence), 0) + 1, NOW(), 'operator',
+                   'STATE_CHANGE', 'Escalated by operator.', '{}'
+            FROM incident_events WHERE incident_id = %s
+            """,
+            (actionable_incident["id"], actionable_incident["id"]),
+        )
     db_connection.commit()
 
-    assert first["id"] == actionable_incident["id"]
-    assert second["id"] == actionable_incident["id"]
+    process_suppressed_alert(db_connection, alert, CMDB)
+    db_connection.commit()
 
     with db_connection.cursor() as cur:
         cur.execute(
@@ -288,7 +301,134 @@ def test_process_suppressed_alert_does_not_retry_after_reconciling_actionable_co
             """,
             (actionable_incident["id"],),
         )
-        assert cur.fetchone()["count"] == 2
+        assert cur.fetchone()["count"] == 1
+
+
+def test_process_suppressed_alert_notes_new_silence_for_same_service(
+    db_connection,
+    make_incident,
+    committed_incident_cleanup,
+):
+    # Ending and restarting a maintenance window produces a new Alertmanager
+    # silence id, which is a new operator action and gets its own NOTE.
+    first_alert = _suppressed_alert("sil-first")
+
+    actionable_incident = make_incident(
+        fingerprint=first_alert["fingerprint"],
+        status="IN_PROGRESS",
+    )
+    db_connection.commit()
+    committed_incident_cleanup.append(actionable_incident["id"])
+
+    process_suppressed_alert(db_connection, first_alert, CMDB)
+    db_connection.commit()
+
+    second_alert = dict(first_alert)
+    second_alert["status"] = {
+        "state": "suppressed",
+        "silencedBy": ["sil-second"],
+        "inhibitedBy": [],
+        "mutedBy": [],
+    }
+
+    process_suppressed_alert(db_connection, second_alert, CMDB)
+    db_connection.commit()
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT silence_id
+            FROM incident_events
+            WHERE incident_id = %s
+              AND event_type = 'NOTE'
+            ORDER BY sequence
+            """,
+            (actionable_incident["id"],),
+        )
+        rows = cur.fetchall()
+
+    assert [row["silence_id"] for row in rows] == ["sil-first", "sil-second"]
+
+
+def test_process_suppressed_alert_notes_each_silence_once(
+    db_connection,
+    make_incident,
+    committed_incident_cleanup,
+):
+    # An alert can be covered by several silences at once (status.silencedBy is
+    # a list). Each silence is an independent operator action and gets its own
+    # NOTE, deduplicated independently.
+    alert = _suppressed_alert("sil-a", "sil-b")
+
+    actionable_incident = make_incident(
+        fingerprint=alert["fingerprint"],
+        status="IN_PROGRESS",
+    )
+    db_connection.commit()
+    committed_incident_cleanup.append(actionable_incident["id"])
+
+    process_suppressed_alert(db_connection, alert, CMDB)
+    db_connection.commit()
+
+    process_suppressed_alert(db_connection, alert, CMDB)
+    db_connection.commit()
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT silence_id
+            FROM incident_events
+            WHERE incident_id = %s
+              AND event_type = 'NOTE'
+            ORDER BY silence_id
+            """,
+            (actionable_incident["id"],),
+        )
+        rows = cur.fetchall()
+
+    assert [row["silence_id"] for row in rows] == ["sil-a", "sil-b"]
+
+
+def test_process_suppressed_alert_skips_note_when_silenced_by_empty(
+    db_connection,
+    make_incident,
+    committed_incident_cleanup,
+):
+    # A silence can expire between Alertmanager evaluating the alert and this
+    # poll reading it, leaving silencedBy empty. With no silence id there is no
+    # identity to deduplicate on, so recording a NOTE would reintroduce
+    # unbounded per-poll noise. Treated as a transient race: skip, don't crash.
+    alert = _suppressed_alert()
+
+    actionable_incident = make_incident(
+        fingerprint=alert["fingerprint"],
+        status="IN_PROGRESS",
+    )
+    db_connection.commit()
+    committed_incident_cleanup.append(actionable_incident["id"])
+
+    result = process_suppressed_alert(db_connection, alert, CMDB)
+    db_connection.commit()
+
+    assert result["id"] == actionable_incident["id"]
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM incident_events
+            WHERE incident_id = %s
+              AND event_type = 'NOTE'
+            """,
+            (actionable_incident["id"],),
+        )
+        assert cur.fetchone()["count"] == 0
+
+        cur.execute(
+            "SELECT status FROM incidents WHERE id = %s",
+            (actionable_incident["id"],),
+        )
+        assert cur.fetchone()["status"] == "IN_PROGRESS"
 
 
 def test_process_suppressed_alert_reconciles_duplicate_suppressed_incident_race(
@@ -385,3 +525,44 @@ def test_process_suppressed_alert_raises_when_unique_violation_is_unexplained(
             raise AssertionError(
                 "Expected RuntimeError for an unexplained UniqueViolation."
             )
+
+
+def test_process_suppressed_alert_propagates_non_silence_unique_violations(
+    db_connection,
+    make_incident,
+    committed_incident_cleanup,
+):
+    # Only the silence index means "already recorded". record_note_event()
+    # computes its sequence with a racy COALESCE(MAX(sequence), 0) + 1, so
+    # incident_events_incident_id_sequence_key can genuinely fire here.
+    # Swallowing it would silently discard a NOTE and report success.
+    alert = _suppressed_alert("sil-abc")
+
+    actionable_incident = make_incident(
+        fingerprint=alert["fingerprint"],
+        status="IN_PROGRESS",
+    )
+    db_connection.commit()
+    committed_incident_cleanup.append(actionable_incident["id"])
+
+    class _FakeDiag:
+        constraint_name = "incident_events_incident_id_sequence_key"
+
+    sequence_violation = psycopg2.errors.UniqueViolation()
+
+    with patch.object(
+        type(sequence_violation), "diag", property(lambda self: _FakeDiag())
+    ):
+        with (
+            patch(
+                "automation.response_engine.maintenance.record_note_event",
+                side_effect=sequence_violation,
+            ),
+            pytest.raises(psycopg2.errors.UniqueViolation) as excinfo,
+        ):
+            process_suppressed_alert(db_connection, alert, CMDB)
+
+        assert (
+            excinfo.value.diag.constraint_name
+            == "incident_events_incident_id_sequence_key"
+        )
