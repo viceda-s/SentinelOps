@@ -114,6 +114,7 @@ Implemented Phase 1 playbooks:
 
 * `restart_service`
 * `collect_diagnostics`
+* `disk_cleanup`
 
 Recovery verification supports:
 
@@ -123,11 +124,15 @@ Recovery verification supports:
 
 ## Operational Tooling
 
-* `bootstrap.sh`
-* `teardown.sh`
-* `chaos.sh`
-* `backup.sh`
-* `validate_cmdb.py`
+* `bootstrap.sh` — Validates environment and starts the Docker Compose stack with post-start health checks.
+* `teardown.sh` — Stops the platform cleanly; `--purge` flag removes persistent data.
+* `backup.sh` — Archives Grafana dashboards and PostgreSQL database to `backups/sentinelops-<timestamp>.tar.gz`; retains the newest `BACKUP_RETENTION` archives (default: 7). Configurable via `BACKUP_DIR` and `BACKUP_RETENTION` environment variables. Restore with: `docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" < postgres.sql`
+* `healthcheck.sh` — One-shot status check of every component (containers, HTTP endpoints, database). Exits 0 if all pass, 1 if anything is down.
+* `chaos.sh` — Chaos testing for exercising the incident response pipeline.
+  - `stop <service>` — Stop a Compose service.
+  - `fill` — Allocate a bounded file to trigger `DiskPressure` alert.
+  - `reset` — Remove the disk filler.
+* `validate_cmdb.py` — Validates the CMDB configuration against alert rules and remediation playbooks.
 
 ## Operational Visibility (Phase 2)
 
