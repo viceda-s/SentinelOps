@@ -262,7 +262,8 @@ def test_check_sla_breaches_logs_response_breach(
 ):
     incident = make_incident(
         status="NEW",
-        sla_response_minutes=0,
+        detected_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+        sla_response_minutes=5,
     )
 
     with caplog.at_level(logging.INFO):

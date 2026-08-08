@@ -168,6 +168,7 @@ services:
     environment:
       POSTGRES_HOST: postgres
       ALERTMANAGER_URL: http://alertmanager:9093
+      PYTHONFAULTHANDLER: "1"
     depends_on:
       postgres:
         condition: service_healthy

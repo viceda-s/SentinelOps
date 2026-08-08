@@ -15,11 +15,14 @@ logger = logging.getLogger(__name__)
 # SUPPRESSED_MAINTENANCE is reserved for the Phase 2 maintenance-window feature.
 # No Phase 1 code path currently enters this state.
 #
+# SUPPRESSED_MAINTENANCE -> RESOLVED is its only legal exit. Nothing currently calls it automatically -- no code path observes an Alertmanager alert recovering and resolves the matching incident. Until that exists, an incident that enters this state stays here until an operator resolves it by hand.
+#
 ALLOWED_TRANSITIONS = {
     "NEW": {"ACKNOWLEDGED", "SUPPRESSED_MAINTENANCE", "ESCALATED"},
     "ACKNOWLEDGED": {"IN_PROGRESS", "ESCALATED"},
     "ESCALATED": {"IN_PROGRESS", "RESOLVED"},
     "IN_PROGRESS": {"RESOLVED", "ESCALATED"},
+    "SUPPRESSED_MAINTENANCE": {"RESOLVED"},
     "RESOLVED": {"CLOSED"},
 }
 
