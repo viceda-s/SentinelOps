@@ -126,6 +126,7 @@ Recovery verification supports:
 * `bootstrap.sh`
 * `teardown.sh`
 * `chaos.sh`
+* `backup.sh`
 * `validate_cmdb.py`
 
 ## Operational Visibility (Phase 2)
