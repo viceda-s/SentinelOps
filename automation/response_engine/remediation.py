@@ -504,13 +504,49 @@ def disk_cleanup(conn, client, incident: dict, cmdb: dict) -> None:
         client.images.prune(filters={"dangling": True})
         client.api.prune_builds()
 
-        deleted = prune_diagnostics()
+        try:
+            deleted = prune_diagnostics()
+        except OSError as e:
+            record_attempt_finish(
+                conn,
+                incident,
+                attempt_number,
+                playbook,
+                result="failure",
+                error=str(e),
+            )
+            transition(
+                conn,
+                incident,
+                "ESCALATED",
+                "worker",
+                "Failed to prune diagnostics",
+            )
+            return
 
         #
         # Re-check the real filesystem to decide the operational outcome.
         #
 
-        percent_free = free_percent(DISK_CLEANUP_PATH)
+        try:
+            percent_free = free_percent(DISK_CLEANUP_PATH)
+        except OSError as e:
+            record_attempt_finish(
+                conn,
+                incident,
+                attempt_number,
+                playbook,
+                result="failure",
+                error=str(e),
+            )
+            transition(
+                conn,
+                incident,
+                "ESCALATED",
+                "worker",
+                "Unable to verify disk pressure after cleanup",
+            )
+            return
 
         #
         # The cleanup itself succeeded either way. Whether it reclaimed *enough*
@@ -566,22 +602,3 @@ def disk_cleanup(conn, client, incident: dict, cmdb: dict) -> None:
             error=str(e),
         )
         raise
-
-    #
-    # Diagnostics pruning touches the filesystem. Escalate rather than crash the
-    # worker if that fails -- the Docker prune above may still have helped.
-    #
-
-    except OSError as e:
-        record_attempt_finish(
-            conn,
-            incident,
-            attempt_number,
-            playbook,
-            result="failure",
-            error=str(e),
-        )
-
-        incident = transition(
-            conn, incident, "ESCALATED", "worker", "Disk cleanup failed"
-        )
