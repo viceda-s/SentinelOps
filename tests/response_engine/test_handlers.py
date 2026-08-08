@@ -1,3 +1,6 @@
+import psycopg2
+import pytest
+
 from automation.response_engine.handlers import (
     handle_alert,
     ingest_alert,
@@ -263,3 +266,94 @@ def test_record_note_event_defaults_payload_to_empty_dict(
             (incident["id"],),
         )
         assert cur.fetchone()["payload"] == {}
+
+
+def test_record_note_event_persists_silence_id(db_connection, make_incident):
+    incident = make_incident(status="IN_PROGRESS")
+
+    record_note_event(
+        db_connection,
+        incident,
+        actor="maintenance",
+        message="Alert also matched an active maintenance window (silence sil-abc).",
+        payload={"fingerprint": "abc"},
+        silence_id="sil-abc",
+    )
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT silence_id, event_type, actor
+            FROM incident_events
+            WHERE incident_id = %s
+            ORDER BY sequence DESC
+            LIMIT 1
+            """,
+            (incident["id"],),
+        )
+        event = cur.fetchone()
+
+    assert event["silence_id"] == "sil-abc"
+    assert event["event_type"] == "NOTE"
+    assert event["actor"] == "maintenance"
+
+
+def test_record_note_event_defaults_silence_id_to_null(db_connection, make_incident):
+    # The webhook duplicate-notification path passes no silence_id. Those rows
+    # must stay outside the partial unique index so that path keeps recording a
+    # NOTE per duplicate notification.
+    incident = make_incident(status="IN_PROGRESS")
+
+    record_note_event(
+        db_connection,
+        incident,
+        actor="webhook_handler",
+        message="Duplicate Alertmanager notification received",
+    )
+
+    record_note_event(
+        db_connection,
+        incident,
+        actor="webhook_handler",
+        message="Duplicate Alertmanager notification received",
+    )
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM incident_events
+            WHERE incident_id = %s
+              AND event_type = 'NOTE'
+              AND silence_id IS NULL
+            """,
+            (incident["id"],),
+        )
+
+        assert cur.fetchone()["count"] == 2
+
+
+def test_record_note_event_rejects_duplicate_silence_id(db_connection, make_incident):
+    # The database, not application logic, is what makes the invariant true.
+    incident = make_incident(status="IN_PROGRESS")
+
+    record_note_event(
+        db_connection,
+        incident,
+        actor="maintenance",
+        message="Alert also matched an active maintenance window (silence sil-dup).",
+        silence_id="sil-dup",
+    )
+
+    with pytest.raises(psycopg2.errors.UniqueViolation) as excinfo:
+        record_note_event(
+            db_connection,
+            incident,
+            actor="maintenance",
+            message="Alert also matched an active maintenance window (silence sil-dup).",
+            silence_id="sil-dup",
+        )
+
+    assert (
+        excinfo.value.diag.constraint_name == "incident_events_maintenance_silence_idx"
+    )
