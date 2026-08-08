@@ -28,6 +28,15 @@ DIAGNOSTICS_DIR = Path("/app/diagnostics")
 # Phase 2 assumes a single-filesystem host; the alert's mountpoint label is
 # intentionally ignored.
 #
+# /hostfs reflects the container host's root filesystem as seen by the Docker
+# Compose worker service. On native Linux Docker hosts this is the real host
+# disk. On Docker Desktop (macOS/Windows), the worker container runs inside a
+# Linux VM, so /hostfs reflects the VM's internal overlay filesystem, NOT the
+# physical host disk that node-exporter's host_mnt/virtiofs-passthrough series
+# may report -- the two can disagree significantly. This is a known
+# limitation of the single-filesystem Phase 2 assumption; production/
+# native-Linux deployment is unaffected.
+#
 DISK_CLEANUP_PATH = os.environ.get("DISK_CLEANUP_PATH", "/hostfs")
 
 # Matches the DiskPressure expression in docker/prometheus/rules/alerts.yml

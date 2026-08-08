@@ -64,6 +64,7 @@ services:
       type: running
     playbooks:
       ServiceDown: restart_service
+      DiskPressure: disk_cleanup
     sla:
       response_minutes: 15
       resolution_minutes: 60
@@ -82,7 +83,6 @@ services:
       ContainerRestartLoop: collect_diagnostics
       HighCPU: collect_diagnostics
       HighMemory: collect_diagnostics
-      DiskPressure: disk_cleanup
     sla:
       response_minutes: 5
       resolution_minutes: 60
