@@ -17,6 +17,76 @@ TERMINAL_STATES = (
 )
 
 
+def record_note_event(
+    conn,
+    incident: dict,
+    *,
+    actor: str,
+    message: str,
+    payload: dict | None = None,
+) -> None:
+    """
+    Append a NOTE event to an incident's timeline.
+
+    Used to record a duplicate or otherwise-informational Alertmanager
+    notification against an incident that already exists, without
+    changing the incident's status.
+
+    Deliberately narrow: computes the next sequence and inserts the event,
+    nothing else. Callers own finding the right incident, deciding whether
+    a NOTE is the right response, and what the message should say.
+
+    The caller owns the transaction. This function MUST NOT call commit()
+    or rollback().
+    """
+
+    if payload is None:
+        payload = {}
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COALESCE(MAX(sequence), 0) + 1
+            AS next_sequence
+            FROM incident_events
+            WHERE incident_id = %s
+            """,
+            (incident["id"],),
+        )
+
+        sequence = cur.fetchone()["next_sequence"]
+
+        cur.execute(
+            """
+            INSERT INTO incident_events (
+                incident_id,
+                sequence,
+                occurred_at,
+                actor,
+                event_type,
+                message,
+                payload
+            )
+            VALUES (
+                %s,
+                %s,
+                NOW(),
+                %s,
+                'NOTE',
+                %s,
+                %s
+            )
+            """,
+            (
+                incident["id"],
+                sequence,
+                actor,
+                message,
+                Json(payload),
+            ),
+        )
+
+
 def ingest_alert(
     conn,
     alert: dict,
@@ -301,51 +371,18 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
 
             incident = cur.fetchone()
 
-            if incident is None:
-                raise RuntimeError(
-                    f"Cannot resolve incident: no active incident exists for fingerprint {fingerprint!r}"
-                )
-
-            cur.execute(
-                """
-                SELECT COALESCE(MAX(sequence), 0) + 1
-                AS next_sequence
-                FROM incident_events
-                WHERE incident_id = %s
-                """,
-                (incident["id"],),
+        if incident is None:
+            raise RuntimeError(
+                f"Cannot resolve incident: no active incident exists for fingerprint {fingerprint!r}"
             )
 
-            sequence = cur.fetchone()["next_sequence"]
-
-            cur.execute(
-                """
-                INSERT INTO incident_events (
-                    incident_id,
-                    sequence,
-                    occurred_at,
-                    actor,
-                    event_type,
-                    message,
-                    payload
-                )
-                VALUES (
-                    %s,
-                    %s,
-                    NOW(),
-                    'alertmanager',
-                    'NOTE',
-                    %s,
-                    %s
-                )
-                """,
-                (
-                    incident["id"],
-                    sequence,
-                    "Duplicate Alertmanager notification received",
-                    Json(alert),
-                ),
-            )
+        record_note_event(
+            conn,
+            incident,
+            actor="webhook_handler",
+            message="Duplicate Alertmanager notification received",
+            payload=alert,
+        )
 
         conn.commit()
 
