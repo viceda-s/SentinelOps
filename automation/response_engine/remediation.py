@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import docker
@@ -16,6 +18,25 @@ VERIFY_INTERVAL = 1
 RESTART_COOLDOWN = 5
 MAX_RESTART_ATTEMPTS = 2
 DIAGNOSTICS_DIR = Path("/app/diagnostics")
+
+#
+# disk_cleanup configuration.
+#
+# DISK_CLEANUP_PATH is the worker's view of the host filesystem that
+# node-exporter reports on. It is a read-only bind mount of the host root, so
+# the playbook measures the same filesystem the DiskPressure alert fires on.
+# Phase 2 assumes a single-filesystem host; the alert's mountpoint label is
+# intentionally ignored.
+#
+DISK_CLEANUP_PATH = os.environ.get("DISK_CLEANUP_PATH", "/hostfs")
+
+# Matches the DiskPressure expression in docker/prometheus/rules/alerts.yml
+# rather than inventing a second recovery threshold.
+DISK_PRESSURE_FREE_PERCENT = float(os.environ.get("DISK_PRESSURE_FREE_PERCENT", "15"))
+
+# Diagnostics artifacts accumulate at a rate driven by incident volume, so
+# retention is age-based rather than count-based.
+DIAGNOSTICS_RETENTION_DAYS = int(os.environ.get("DIAGNOSTICS_RETENTION_DAYS", "14"))
 
 
 def record_attempt_start(conn, incident: dict, playbook: str) -> int:
@@ -398,4 +419,169 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
 
         incident = transition(
             conn, incident, "ESCALATED", "worker", "Failed to persist diagnostics"
+        )
+
+
+def free_percent(path: str) -> float:
+    """
+    Return the percentage of free space on the filesystem containing path.
+
+    Read directly from the filesystem rather than from Prometheus: the response
+    engine never queries Prometheus, and Docker's own storage accounting
+    answers a different question than the one DiskPressure asks.
+    """
+
+    usage = shutil.disk_usage(path)
+
+    return usage.free / usage.total * 100
+
+
+def prune_diagnostics(retention_days: int = DIAGNOSTICS_RETENTION_DAYS) -> int:
+    """
+    Delete diagnostics artifacts older than retention_days.
+
+    Returns the number of files deleted. Missing directory is not an error --
+    nothing has been collected yet.
+    """
+
+    if not DIAGNOSTICS_DIR.exists():
+        return 0
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).timestamp()
+    deleted = 0
+
+    for artifact in DIAGNOSTICS_DIR.glob("*.json"):
+        if artifact.stat().st_mtime < cutoff:
+            artifact.unlink()
+            deleted += 1
+
+    return deleted
+
+
+def disk_cleanup(conn, client, incident: dict, cmdb: dict) -> None:
+    """
+    Execute the disk_cleanup playbook.
+
+    Prunes reclaimable Docker data and old diagnostics artifacts, then re-checks
+    free space to decide whether the incident recovered.
+
+    The caller owns the transaction.
+    This function MUST NOT call commit() or rollback()
+    """
+
+    incident = transition(
+        conn, incident, "IN_PROGRESS", "worker", "Starting disk_cleanup playbook"
+    )
+
+    if incident["service"] not in cmdb["services"]:
+        incident = transition(
+            conn,
+            incident,
+            "ESCALATED",
+            "worker",
+            "Service no longer exists in the CMDB.",
+        )
+        return
+
+    playbook = "disk_cleanup"
+    attempt_number = record_attempt_start(
+        conn,
+        incident,
+        playbook,
+    )
+
+    try:
+        #
+        # Conservative prune only.
+        #
+        # Volumes are NEVER pruned: postgres_data holds every incident in the
+        # system, and DiskPressure is a warning-severity alert. Unused-but-tagged
+        # images are also left alone -- deleting an image the estate needs turns
+        # a disk warning into a failed restart_service during the next outage.
+        #
+
+        client.containers.prune()
+        client.images.prune(filters={"dangling": True})
+        client.api.prune_builds()
+
+        deleted = prune_diagnostics()
+
+        #
+        # Re-check the real filesystem to decide the operational outcome.
+        #
+
+        percent_free = free_percent(DISK_CLEANUP_PATH)
+
+        #
+        # The cleanup itself succeeded either way. Whether it reclaimed *enough*
+        # is an operational outcome carried by the incident state, not an
+        # execution failure -- recording it as a failure would fire
+        # RemediationFailureRateHigh when the playbook worked as designed.
+        #
+
+        record_attempt_finish(
+            conn,
+            incident,
+            attempt_number,
+            playbook,
+            result="success",
+        )
+
+        if percent_free >= DISK_PRESSURE_FREE_PERCENT:
+            incident = transition(
+                conn,
+                incident,
+                "RESOLVED",
+                "worker",
+                (
+                    f"Disk cleanup reclaimed space "
+                    f"({percent_free:.1f}% free, {deleted} diagnostics artifacts removed)."
+                ),
+            )
+            return
+
+        incident = transition(
+            conn,
+            incident,
+            "ESCALATED",
+            "worker",
+            (
+                f"Disk still low after cleanup "
+                f"({percent_free:.1f}% free, {deleted} diagnostics artifacts removed)."
+            ),
+        )
+        return
+
+    #
+    # Docker Engine failures are infrastructure failures, not remediation outcomes. Record the failed attempt so the audit trail stays complete, then propagate the exception to the worker.
+    #
+
+    except docker.errors.APIError as e:
+        record_attempt_finish(
+            conn,
+            incident,
+            attempt_number,
+            playbook,
+            result="failure",
+            error=str(e),
+        )
+        raise
+
+    #
+    # Diagnostics pruning touches the filesystem. Escalate rather than crash the
+    # worker if that fails -- the Docker prune above may still have helped.
+    #
+
+    except OSError as e:
+        record_attempt_finish(
+            conn,
+            incident,
+            attempt_number,
+            playbook,
+            result="failure",
+            error=str(e),
+        )
+
+        incident = transition(
+            conn, incident, "ESCALATED", "worker", "Disk cleanup failed"
         )
