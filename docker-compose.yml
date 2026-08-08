@@ -158,6 +158,23 @@ services:
       - ./diagnostics:/app/diagnostics
     restart: unless-stopped
 
+  maintenance-monitor:
+    build:
+      context: .
+      dockerfile: docker/maintenance-monitor/Dockerfile
+    container_name: sentinelops-maintenance-monitor
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      ALERTMANAGER_URL: http://alertmanager:9093
+    depends_on:
+      postgres:
+        condition: service_healthy
+      alertmanager:
+        condition: service_started
+    restart: unless-stopped
+
 
 
 volumes:

@@ -84,3 +84,40 @@ def test_transition_to_in_progress_observes_no_histogram(db_connection, make_inc
 
     assert histogram_count(INCIDENT_RESPONSE_SECONDS) == response_before
     assert histogram_count(INCIDENT_RESOLUTION_SECONDS) == resolution_before
+
+
+def test_transition_to_suppressed_maintenance(
+    db_connection,
+    make_incident,
+):
+    incident = make_incident(status="NEW")
+
+    updated = transition(
+        db_connection,
+        incident,
+        "SUPPRESSED_MAINTENANCE",
+        actor="maintenance",
+        message="Suppressed by active maintenance window.",
+    )
+
+    assert updated["status"] == "SUPPRESSED_MAINTENANCE"
+
+
+def test_transition_from_suppressed_maintenance_is_rejected(
+    db_connection,
+    make_incident,
+):
+    incident = make_incident(status="SUPPRESSED_MAINTENANCE")
+
+    try:
+        transition(
+            db_connection,
+            incident,
+            "IN_PROGRESS",
+            actor="worker",
+            message="Beginning remediation.",
+        )
+    except ValueError as exc:
+        assert "Invalid transition" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for invalid state transition.")

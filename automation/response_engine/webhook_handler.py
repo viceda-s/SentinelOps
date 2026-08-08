@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
 
-import psycopg2
-import yaml
 from flask import Flask, Response, jsonify, request
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from psycopg2.extras import RealDictCursor
 from werkzeug.exceptions import BadRequest, UnsupportedMediaType
 
+from .cmdb import load_cmdb
+from .db import get_connection
 from .handlers import handle_alert
 from .logging_config import configure_logging
 
@@ -26,35 +23,10 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 #
-# CMDB
+# CMDB is loaded once at import time; Gunicorn workers do not reload it.
 #
 
-CMDB_PATH = Path(
-    os.environ.get(
-        "CMDB_PATH",
-        "/app/cmdb/services.yaml",
-    )
-)
-
-with CMDB_PATH.open("r", encoding="utf-8") as f:
-    cmdb = yaml.safe_load(f)
-
-
-def get_connection():
-    """
-    Return a new PostgreSQL connection.
-
-    Connections are request-scoped.
-    """
-
-    return psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "postgres"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        user=os.environ["RESPONSE_ENGINE_DB_USER"],
-        password=os.environ["RESPONSE_ENGINE_DB_PASSWORD"],
-        dbname=os.getenv("POSTGRES_DB", "postgres"),
-        cursor_factory=RealDictCursor,
-    )
+cmdb = load_cmdb()
 
 
 @app.post("/alerts")

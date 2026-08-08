@@ -147,7 +147,27 @@
 
 <h2>Maintenance windows</h2>
 
+{% if model.active_maintenance_windows %}
+<table>
+    <thead>
+        <tr>
+            <th>Service</th>
+            <th>Ends</th>
+        </tr>
+    </thead>
+
+    <tbody>
+    {% for window in model.active_maintenance_windows %}
+        <tr>
+            <td>{{ window.service }}</td>
+            <td>{{ window.ends_at }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
 <p>None active</p>
+{% endif %}
 
 </body>
 </html>

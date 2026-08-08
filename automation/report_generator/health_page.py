@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+import requests
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 SEVERITY_RANK = {
@@ -17,6 +19,7 @@ class HealthPageModel:
     services: list[dict]
     open_incidents: list[dict]
     counts_by_severity: dict[str, int]
+    active_maintenance_windows: list[dict] = field(default_factory=list)
 
 
 _TEMPLATE_ENV = Environment(
@@ -87,6 +90,7 @@ def query_health_state(conn, cmdb: dict) -> HealthPageModel:
         services=services,
         open_incidents=open_incidents,
         counts_by_severity=dict(counts),
+        active_maintenance_windows=query_active_maintenance_windows(),
     )
 
 
@@ -96,3 +100,55 @@ def render_health_page(model: HealthPageModel) -> str:
     """
     template = _TEMPLATE_ENV.get_template("health.html.j2")
     return template.render(model=model)
+
+
+def query_active_maintenance_windows() -> list[dict]:
+    """
+    Query Alertmanager for active maintenance windows.
+
+    Returns an empty list if Alertmanager cannot be reached.
+    """
+
+    alertmanager_url = os.getenv(
+        "ALERTMANAGER_URL",
+        "http://alertmanager:9093",
+    )
+
+    try:
+        response = requests.get(
+            f"{alertmanager_url}/api/v2/silences",
+            timeout=5,
+        )
+        response.raise_for_status()
+
+    except requests.RequestException:
+        return []
+
+    windows = []
+
+    for silence in response.json():
+        if silence["status"]["state"] != "active":
+            continue
+
+        service = None
+
+        for matcher in silence["matchers"]:
+            if matcher["name"] == "job" and not matcher.get("isRegex", False):
+                service = matcher["value"]
+                break
+
+        if service is None:
+            continue
+
+        windows.append(
+            {
+                "id": silence["id"],
+                "service": service,
+                "starts_at": silence["startsAt"],
+                "ends_at": silence["endsAt"],
+                "created_by": silence["createdBy"],
+                "comment": silence["comment"],
+            }
+        )
+
+    return windows

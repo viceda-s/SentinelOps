@@ -24,6 +24,26 @@ SLA_BREACHES_TOTAL = Counter(
     ("type",),
 )
 
+SUPPRESSED_ALERTS_DISCOVERED_TOTAL = Counter(
+    "sentinelops_suppressed_alerts_discovered_total",
+    "Total suppressed alerts discovered during polling.",
+)
+
+SUPPRESSED_INCIDENTS_CREATED_TOTAL = Counter(
+    "sentinelops_suppressed_incidents_created_total",
+    "Total SUPPRESSED_MAINTENANCE incidents created.",
+)
+
+SUPPRESSED_ALERTS_DUPLICATE_TOTAL = Counter(
+    "sentinelops_suppressed_alerts_duplicate_total",
+    "Total suppressed alerts skipped because an incident already exists.",
+)
+
+ALERTMANAGER_REQUEST_FAILURES_TOTAL = Counter(
+    "sentinelops_alertmanager_request_failures_total",
+    "Total failed requests to the Alertmanager API.",
+)
+
 #
 # Liveness metrics
 #
@@ -31,6 +51,11 @@ SLA_BREACHES_TOTAL = Counter(
 WORKER_HEARTBEAT_TIMESTAMP = Gauge(
     "sentinelops_worker_heartbeat_timestamp",
     "Unix timestamp of the worker's most recent poll loop iteration.",
+)
+
+MAINTENANCE_HEARTBEAT_TIMESTAMP = Gauge(
+    "sentinelops_maintenance_heartbeat_timestamp",
+    "Unix timestamp of the maintenance monitor's most recent successful poll.",
 )
 
 #

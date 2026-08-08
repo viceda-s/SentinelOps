@@ -17,33 +17,106 @@ TERMINAL_STATES = (
 )
 
 
-def handle_alert(conn, alert: dict, cmdb: dict) -> None:
+def record_note_event(
+    conn,
+    incident: dict,
+    *,
+    actor: str,
+    message: str,
+    payload: dict | None = None,
+) -> None:
     """
-    Process a single Alertmanager alert.
+    Append a NOTE event to an incident's timeline.
+
+    Used to record a duplicate or otherwise-informational Alertmanager
+    notification against an incident that already exists, without
+    changing the incident's status.
+
+    Deliberately narrow: computes the next sequence and inserts the event,
+    nothing else. Callers own finding the right incident, deciding whether
+    a NOTE is the right response, and what the message should say.
+
+    The caller owns the transaction. This function MUST NOT call commit()
+    or rollback().
+    """
+
+    if payload is None:
+        payload = {}
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COALESCE(MAX(sequence), 0) + 1
+            AS next_sequence
+            FROM incident_events
+            WHERE incident_id = %s
+            """,
+            (incident["id"],),
+        )
+
+        sequence = cur.fetchone()["next_sequence"]
+
+        cur.execute(
+            """
+            INSERT INTO incident_events (
+                incident_id,
+                sequence,
+                occurred_at,
+                actor,
+                event_type,
+                message,
+                payload
+            )
+            VALUES (
+                %s,
+                %s,
+                NOW(),
+                %s,
+                'NOTE',
+                %s,
+                %s
+            )
+            """,
+            (
+                incident["id"],
+                sequence,
+                actor,
+                message,
+                Json(payload),
+            ),
+        )
+
+
+def ingest_alert(
+    conn,
+    alert: dict,
+    cmdb: dict,
+    source: str,
+) -> dict:
+    """
+    Create a NEW incident from an Alertmanager alert.
 
     Responsibilities:
         - extract Alertmanager fields
-        - enrich from the CMDB
+        - resolve service metadata from the CMDB
         - resolve the playbook
-        - create a NEW incident
-        - create the initial CREATED event
-        - deduplicate using the database unique constraint
-        - immediately escalate unknown services
+        - generate an incident reference
+        - insert the incident
+        - record the initial CREATED event
+        - increment incident creation metrics
+
+    Deliberately policy-free:
+        - does not decide the incident lifecycle
+        - callers decide whether to leave the incident NEW,
+          ESCALATE it, SUPPRESS it, etc. via transition()
+
+    Transaction ownership:
+        - the caller owns the transaction
+        - this function MUST NOT call commit() or rollback()
+
+    Returns:
+        The newly created incident row.
     """
-
-    #
-    # Phase 1 only processes firing alerts
-    #
-
-    if alert.get("status") != "firing":
-        logger.info(
-            "Ignoring non-firing alert",
-            extra={
-                "status": alert.get("status"),
-                "fingerprint": alert.get("fingerprint"),
-            },
-        )
-        return
 
     labels = alert.get("labels") or {}
     annotations = alert.get("annotations") or {}
@@ -61,17 +134,165 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
         playbook,
         sla_response,
         sla_resolution,
-        known_service,
+        _,
     ) = resolve_cmdb_entry(
         cmdb,
         service,
         alert_name,
     )
 
+    reference = generate_reference(conn)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO incidents (
+                reference,
+                fingerprint,
+                alert_name,
+                service,
+                severity,
+                status,
+                owner,
+                tier,
+                criticality,
+                playbook,
+                detected_at,
+                sla_response_minutes,
+                sla_resolution_minutes,
+                labels,
+                annotations
+            )
+            VALUES (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                'NEW',
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s
+            )
+            RETURNING *
+            """,
+            (
+                reference,
+                fingerprint,
+                alert_name,
+                service,
+                severity,
+                owner,
+                tier,
+                criticality,
+                playbook,
+                detected_at,
+                sla_response,
+                sla_resolution,
+                Json(labels),
+                Json(annotations),
+            ),
+        )
+
+        incident = cur.fetchone()
+
+        #
+        # Best-effort telemetry: Prometheus metrics are not transactionally coupled to PostgreSQL, so this may diverge if the transaction later rolls back.
+        #
+
+        INCIDENTS_CREATED_TOTAL.labels(
+            service=incident["service"],
+            severity=incident["severity"],
+        ).inc()
+
+        cur.execute(
+            """
+            INSERT INTO incident_events (
+                incident_id,
+                sequence,
+                occurred_at,
+                actor,
+                event_type,
+                message,
+                payload
+            )
+            VALUES (
+                %s,
+                %s,
+                NOW(),
+                %s,
+                'CREATED',
+                %s,
+                %s
+            )
+            """,
+            (
+                incident["id"],
+                1,
+                source,
+                f"{alert_name} received",
+                Json(alert),
+            ),
+        )
+
+    return incident
+
+
+def handle_alert(conn, alert: dict, cmdb: dict) -> None:
+    """
+    Process a single Alertmanager alert.
+
+    Responsibilities:
+        - process firing alerts only
+        - validate Alertmanager metadata against the CMDB
+        - create or retrieve the incident
+        - apply webhook-specific lifecycle policy
+        - deduplicate duplicate Alertmanager notifications
+    """
+
+    #
+    # Phase 1 only processes firing alerts.
+    #
+
+    if alert.get("status") != "firing":
+        logger.info(
+            "Ignoring non-firing alert",
+            extra={
+                "status": alert.get("status"),
+                "fingerprint": alert.get("fingerprint"),
+            },
+        )
+        return
+
+    labels = alert.get("labels") or {}
+
+    alert_name = labels["alertname"]
+    service = labels["job"]
+    fingerprint = alert["fingerprint"]
+
     #
     # Alertmanager carries a playbook too.
     # The CMDB is authoritative; mismatches are logged.
     #
+    (
+        _owner,
+        _tier,
+        _criticality,
+        playbook,
+        _sla_response,
+        _sla_resolution,
+        known_service,
+    ) = resolve_cmdb_entry(
+        cmdb,
+        service,
+        alert_name,
+    )
 
     alertmanager_playbook = labels.get("playbook")
 
@@ -86,126 +307,48 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
             },
         )
 
-    reference = generate_reference(conn)
-
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO incidents (
-                    reference,
-                    fingerprint,
-                    alert_name,
-                    service,
-                    severity,
-                    status,
-                    owner,
-                    tier,
-                    criticality,
-                    playbook,
-                    detected_at,
-                    sla_response_minutes,
-                    sla_resolution_minutes,
-                    labels,
-                    annotations
-                )
-                VALUES (
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    'NEW',
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s
-                )
-                RETURNING *
-                """,
-                (
-                    reference,
-                    fingerprint,
-                    alert_name,
-                    service,
-                    severity,
-                    owner,
-                    tier,
-                    criticality,
-                    playbook,
-                    detected_at,
-                    sla_response,
-                    sla_resolution,
-                    Json(labels),
-                    Json(annotations),
-                ),
+        incident = ingest_alert(
+            conn,
+            alert,
+            cmdb,
+            source="webhook_handler",
+        )
+
+        #
+        # Webhook-specific lifecycle policy.
+        #
+        # Incidents that cannot be remediated automatically
+        # escalate immediately after creation.
+        #
+
+        if not known_service:
+            transition(
+                conn,
+                incident,
+                "ESCALATED",
+                "webhook_handler",
+                "Unknown service in CMDB",
             )
 
-            incident = cur.fetchone()
-
-            # Best-effort telemetry: Prometheus metrics are not transactionally coupled to PostgreSQL, so this may diverge if the transaction later rolls back.
-            INCIDENTS_CREATED_TOTAL.labels(
-                service=incident["service"],
-                severity=incident["severity"],
-            ).inc()
-
-            cur.execute(
-                """
-                INSERT INTO incident_events (
-                    incident_id,
-                    sequence,
-                    occurred_at,
-                    actor,
-                    event_type,
-                    message,
-                    payload
-                )
-                VALUES (
-                    %s,
-                    %s,
-                    NOW(),
-                    'alertmanager',
-                    'CREATED',
-                    %s,
-                    %s
-                )
-                """,
-                (
-                    incident["id"],
-                    1,
-                    f"{alert_name} received",
-                    Json(alert),
-                ),
+        elif playbook == "none":
+            transition(
+                conn,
+                incident,
+                "ESCALATED",
+                "webhook_handler",
+                f"No playbook configured for alert {alert_name!r}",
             )
-
-            #
-            # Incidents that cannot be remediated automatically escalate immediately.
-            #
-
-            if not known_service:
-                transition(
-                    conn,
-                    incident,
-                    "ESCALATED",
-                    "webhook_handler",
-                    "Unknown service in CMDB",
-                )
-
-            elif playbook == "none":
-                transition(
-                    conn,
-                    incident,
-                    "ESCALATED",
-                    "webhook_handler",
-                    f"No playbook configured for alert {alert_name!r}",
-                )
 
         conn.commit()
+
+    #
+    # Duplicate Alertmanager notifications are expected.
+    #
+    # The active-incident unique constraint guarantees only one
+    # actionable incident exists per fingerprint. Later notifications
+    # are recorded as NOTE events on the existing incident.
+    #
 
     except psycopg2.errors.UniqueViolation:
         conn.rollback()
@@ -216,63 +359,30 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
                 SELECT *
                 FROM incidents
                 WHERE fingerprint = %s
-                    AND status IN (
-                        'NEW',
-                        'ACKNOWLEDGED',
-                        'IN_PROGRESS',
-                        'ESCALATED'
-                    )
+                  AND status IN (
+                      'NEW',
+                      'ACKNOWLEDGED',
+                      'IN_PROGRESS',
+                      'ESCALATED'
+                  )
                 """,
                 (fingerprint,),
             )
 
             incident = cur.fetchone()
 
-            if incident is None:
-                raise RuntimeError(
-                    f"Cannot resolve incident: no active incident exists for fingerprint {fingerprint!r}"
-                )
-
-            cur.execute(
-                """
-                SELECT COALESCE(MAX(sequence), 0) + 1
-                AS next_sequence
-                FROM incident_events
-                WHERE incident_id = %s
-                """,
-                (incident["id"],),
+        if incident is None:
+            raise RuntimeError(
+                f"Cannot resolve incident: no active incident exists for fingerprint {fingerprint!r}"
             )
 
-            sequence = cur.fetchone()["next_sequence"]
-
-            cur.execute(
-                """
-                INSERT INTO incident_events (
-                    incident_id,
-                    sequence,
-                    occurred_at,
-                    actor,
-                    event_type,
-                    message,
-                    payload
-                )
-                VALUES (
-                    %s,
-                    %s,
-                    NOW(),
-                    'alertmanager',
-                    'NOTE',
-                    %s,
-                    %s
-                )
-                """,
-                (
-                    incident["id"],
-                    sequence,
-                    "Duplicate Alertmanager notification received",
-                    Json(alert),
-                ),
-            )
+        record_note_event(
+            conn,
+            incident,
+            actor="webhook_handler",
+            message="Duplicate Alertmanager notification received",
+            payload=alert,
+        )
 
         conn.commit()
 
