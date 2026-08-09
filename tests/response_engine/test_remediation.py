@@ -28,6 +28,37 @@ def docker_client():
     return MagicMock()
 
 
+@pytest.fixture
+def fake_clock():
+    """
+    A monotonic clock that only advances when code calls time.sleep(), so
+    disk_cleanup's real-time retry loop (deadline = time.monotonic() + N)
+    can be exercised without the test actually waiting N seconds. Patches
+    both time.monotonic and time.sleep on the remediation module -- patching
+    sleep alone does nothing, since the loop's deadline check reads
+    monotonic() directly and the loop otherwise busy-spins in real time.
+    """
+    clock = [1_000_000.0]
+
+    def fake_monotonic():
+        return clock[0]
+
+    def fake_sleep(seconds):
+        clock[0] += seconds
+
+    with (
+        patch(
+            "automation.response_engine.remediation.time.monotonic",
+            side_effect=fake_monotonic,
+        ),
+        patch(
+            "automation.response_engine.remediation.time.sleep",
+            side_effect=fake_sleep,
+        ),
+    ):
+        yield clock
+
+
 def _status(db_connection, incident_id: int) -> str:
     with db_connection.cursor() as cur:
         cur.execute("SELECT status FROM incidents WHERE id = %s", (incident_id,))
@@ -74,7 +105,9 @@ def test_resolves_when_cleanup_frees_enough_space(
     assert attempts[0]["result"] == "success"
 
 
-def test_escalates_when_disk_still_low(db_connection, make_incident, docker_client):
+def test_escalates_when_disk_still_low(
+    db_connection, make_incident, docker_client, fake_clock
+):
     incident = make_incident(
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
@@ -216,7 +249,7 @@ def test_records_failure_and_escalates_when_diagnostics_pruning_fails(
 
 
 def test_records_failure_and_escalates_when_filesystem_recheck_fails(
-    db_connection, make_incident, docker_client
+    db_connection, make_incident, docker_client, fake_clock
 ):
     incident = make_incident(
         status="ACKNOWLEDGED",
@@ -237,12 +270,9 @@ def test_records_failure_and_escalates_when_filesystem_recheck_fails(
     #
     from automation.response_engine.remediation import DiskMeasurementUnavailable
 
-    with (
-        patch(
-            "automation.response_engine.remediation.get_disk_free_percent",
-            side_effect=DiskMeasurementUnavailable("Prometheus query failed: timeout"),
-        ),
-        patch("automation.response_engine.remediation.time.sleep"),
+    with patch(
+        "automation.response_engine.remediation.get_disk_free_percent",
+        side_effect=DiskMeasurementUnavailable("Prometheus query failed: timeout"),
     ):
         disk_cleanup(db_connection, docker_client, incident, CMDB)
 
