@@ -111,6 +111,23 @@ check_internal_http() {
 # python3, unlike the engine processes' python:3.13-slim base) but ship
 # BusyBox wget, which uses -T SEC for a timeout -- it has no --timeout
 # long-flag, confirmed against both images before writing this.
+#
+# Architectural limitation, confirmed by testing: this is an in-container
+# liveness probe, not a network reachability probe. It verifies the
+# service's HTTP endpoint responds from its own network namespace (over
+# localhost, via docker compose exec) -- it does NOT verify host-to-
+# container, inter-container, or external network connectivity. Confirmed
+# directly: docker network disconnect on a live node-exporter container
+# left this probe returning success, since disconnecting the container's
+# external network attachment has no effect on its loopback interface. This
+# is inherent to probing via docker compose exec + localhost, not a defect;
+# closing it would require publishing a host port for node-exporter/cadvisor
+# purely for diagnostics, which is a deliberate trade-off this fix declines
+# to make. A container-stopped failure is still caught by check_state()
+# above, and an HTTP server that's actually dead/unresponsive inside its own
+# container is still caught by this probe -- only an external network-path
+# failure with the process still alive and responsive to itself falls
+# outside what self-http can observe.
 check_self_http() {
     local service="$1"
     local url="$2"
@@ -183,8 +200,8 @@ check_component grafana             http     "http://localhost:3001/api/health"
 check_component worker              metrics  "http://worker:8000/metrics"
 check_component webhook-handler     metrics  "http://webhook-handler:8000/metrics"
 check_component maintenance-monitor metrics  "http://maintenance-monitor:8000/metrics"
-check_component node-exporter        self-http "http://localhost:9100/metrics"
-check_component cadvisor             self-http "http://localhost:8080/healthz"
+check_component node-exporter       self-http "http://localhost:9100/metrics"
+check_component cadvisor            self-http "http://localhost:8080/healthz"
 #
 # report-generator has no functional probe: no HEALTHCHECK, no published
 # port, no HTTP server -- it's a background polling loop with no
