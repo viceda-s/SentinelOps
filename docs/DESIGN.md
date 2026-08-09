@@ -59,7 +59,7 @@ If I catch myself adding something because it seems interesting rather than beca
 
 - Grafana down → monitoring and remediation keep working
 - Report generator down → incidents are still detected and fixed
-- Prometheus down → the response engine doesn't crash (it never calls Prometheus)
+- Prometheus down → the response engine doesn't crash (`disk_cleanup`'s Prometheus query is the one narrow, deliberate exception to "never calls Prometheus" — a query failure escalates the incident rather than crashing the worker)
 - Worker down → the webhook handler keeps accepting and saving alerts
 - PostgreSQL down → the handler returns an error so Alertmanager retries instead of the alert disappearing
 
@@ -234,7 +234,7 @@ The worker loads the CMDB once at process startup, not per poll cycle or per inc
 | --------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `restart_service`     | Service down                             | Check container exists, restart, wait, check `/health`, max 2 attempts with a cooldown          |
 | `collect_diagnostics` | CPU, memory, error rate, latency         | Snapshot metrics, grab last 100 log lines and container stats, then escalate. Never restarts    |
-| `disk_cleanup`        | Disk pressure                            | Prune reclaimable Docker data and rotate logs in a scoped path, re-check, escalate if still low |
+| `disk_cleanup`        | Disk pressure                            | Prune reclaimable Docker data, prune old diagnostics artifacts by age, re-check via a scoped Prometheus query against the alert's own filesystem, escalate if still low |
 | `none`                | Self-monitoring alerts, unknown services | Record and escalate immediately                                                                 |
 
 **High CPU and high error rate don't trigger a restart, on purpose.** My first version restarted anything that alerted, and I changed it while writing the runbooks. If a service is pegged at 100% CPU and I restart it, I've thrown away the state that would tell me why, and I'll probably see the same alert again in twenty minutes with nothing new to go on. Restarting is only the right automated response when the process is actually gone. For saturation, the useful automated action is to collect evidence while the problem is still happening and hand it to a person.
