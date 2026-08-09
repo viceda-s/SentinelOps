@@ -44,6 +44,23 @@ set -a
 source .env
 set +a
 
+#
+# BACKUP_RETENTION=0 would make the prune step's `tail -n "+1"` select every
+# archive including the one this run just created -- deleting all backups,
+# the exact zero-archives outcome count-based retention exists to prevent.
+# Reject anything that isn't a positive integer before doing any work.
+#
+# Placed after .env is sourced, not right after the line-11 default: .env
+# uses `set -a` and can overwrite BACKUP_RETENTION, so validating the
+# pre-.env value would validate the wrong number -- the effective value is
+# whatever survives after .env is loaded. Placed after the --help check
+# above so a bad value never blocks --help from working.
+#
+if ! [[ "$BACKUP_RETENTION" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: BACKUP_RETENTION must be a positive integer, got: ${BACKUP_RETENTION}" >&2
+    exit 1
+fi
+
 timestamp="$(date -u +"%Y%m%dT%H%M%SZ")"
 final_archive="${BACKUP_DIR}/sentinelops-${timestamp}.tar.gz"
 tmp_archive="${BACKUP_DIR}/.sentinelops-${timestamp}.tar.gz.tmp"
