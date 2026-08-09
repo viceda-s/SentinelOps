@@ -325,65 +325,85 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
             source="webhook_handler",
         )
 
-        # Escalate immediately if service is unknown or has no automated playbook.
-
-        if not known_service:
-            transition(
-                conn,
-                incident,
-                "ESCALATED",
-                "webhook_handler",
-                "Unknown service in CMDB",
-            )
-
-        elif playbook == "none":
-            transition(
-                conn,
-                incident,
-                "ESCALATED",
-                "webhook_handler",
-                f"No playbook configured for alert {alert_name!r}",
-            )
-
-        conn.commit()
-
-    # Duplicate notifications are recorded as NOTE events on the existing active incident.
-
-    except psycopg2.errors.UniqueViolation:
-        conn.rollback()
-
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT *
-                FROM incidents
-                WHERE fingerprint = %s
-                  AND status IN (
-                      'NEW',
-                      'ACKNOWLEDGED',
-                      'IN_PROGRESS',
-                      'ESCALATED'
-                  )
-                """,
-                (fingerprint,),
-            )
-
-            incident = cur.fetchone()
-
-        if incident is None:
-            raise RuntimeError(
-                f"Cannot resolve incident: no active incident exists for fingerprint {fingerprint!r}"
-            )
-
-        record_note_event(
+        _apply_webhook_lifecycle_policy(
             conn,
             incident,
-            actor="webhook_handler",
-            message="Duplicate Alertmanager notification received",
-            payload=alert,
+            known_service,
+            playbook,
+            alert_name,
         )
 
         conn.commit()
+
+    except psycopg2.errors.UniqueViolation:
+        _reconcile_duplicate_alert(conn, alert, fingerprint)
+
+
+def _apply_webhook_lifecycle_policy(
+    conn,
+    incident: dict,
+    known_service: bool,
+    playbook: str,
+    alert_name: str,
+) -> dict:
+    """Apply webhook-specific lifecycle escalation policy after incident creation."""
+    if not known_service:
+        return transition(
+            conn,
+            incident,
+            "ESCALATED",
+            "webhook_handler",
+            "Unknown service in CMDB",
+        )
+
+    if playbook == "none":
+        return transition(
+            conn,
+            incident,
+            "ESCALATED",
+            "webhook_handler",
+            f"No playbook configured for alert {alert_name!r}",
+        )
+
+    return incident
+
+
+def _reconcile_duplicate_alert(conn, alert: dict, fingerprint: str) -> None:
+    """Handle duplicate Alertmanager notifications for active incidents."""
+    conn.rollback()
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT *
+            FROM incidents
+            WHERE fingerprint = %s
+              AND status IN (
+                  'NEW',
+                  'ACKNOWLEDGED',
+                  'IN_PROGRESS',
+                  'ESCALATED'
+              )
+            """,
+            (fingerprint,),
+        )
+
+        incident = cur.fetchone()
+
+    if incident is None:
+        raise RuntimeError(
+            f"Cannot resolve incident: no active incident exists for fingerprint {fingerprint!r}"
+        )
+
+    record_note_event(
+        conn,
+        incident,
+        actor="webhook_handler",
+        message="Duplicate Alertmanager notification received",
+        payload=alert,
+    )
+
+    conn.commit()
 
 
 def resolve_cmdb_entry(cmdb: dict, service: str, alert_name: str):

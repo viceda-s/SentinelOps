@@ -366,3 +366,51 @@ def test_record_note_event_rejects_duplicate_silence_id(db_connection, make_inci
     assert (
         excinfo.value.diag.constraint_name == "incident_events_maintenance_silence_idx"
     )
+
+
+def test_reconcile_duplicate_alert_raises_when_no_active_incident_exists(
+    db_connection,
+):
+    """Verify that _reconcile_duplicate_alert raises RuntimeError when no active incident exists."""
+    from automation.response_engine.handlers import _reconcile_duplicate_alert
+
+    alert = _firing_alert()
+    alert["fingerprint"] = "non-existent-fingerprint-12345"
+
+    with pytest.raises(
+        RuntimeError, match="Cannot resolve incident: no active incident exists"
+    ):
+        _reconcile_duplicate_alert(db_connection, alert, alert["fingerprint"])
+
+
+def test_reconcile_duplicate_alert_appends_note_with_webhook_actor(
+    db_connection, committed_incident_cleanup, make_incident
+):
+    """Verify that _reconcile_duplicate_alert Appends NOTE event using actor 'webhook_handler'."""
+    from automation.response_engine.handlers import _reconcile_duplicate_alert
+
+    alert = _firing_alert()
+    incident = make_incident(
+        fingerprint=alert["fingerprint"],
+        status="NEW",
+    )
+    db_connection.commit()
+    committed_incident_cleanup.append(incident["id"])
+
+    _reconcile_duplicate_alert(db_connection, alert, alert["fingerprint"])
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT actor, event_type, message
+            FROM incident_events
+            WHERE incident_id = %s
+            """,
+            (incident["id"],),
+        )
+        events = cur.fetchall()
+
+    assert len(events) == 1
+    assert events[0]["actor"] == "webhook_handler"
+    assert events[0]["event_type"] == "NOTE"
+    assert events[0]["message"] == "Duplicate Alertmanager notification received"
