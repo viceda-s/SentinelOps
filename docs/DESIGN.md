@@ -4,7 +4,7 @@
 
 Author: Vicente Coelho
 Last updated: 2026-08-09
-Status: v2.0, reconciled post-Phase 2
+Status: v2.1, reconciled post-Phase 2 architectural refactors
 
 ---
 
@@ -220,7 +220,9 @@ Three processes sharing one codebase:
 | `remediation_worker` | Claim incidents, run playbooks, verify, update state | Accept HTTP input           |
 | `report_generator`   | Render health page, timelines, PDFs                  | Change incident state       |
 
-The handler uses the Prometheus `job` label as the service identifier, looks the service up in the CMDB, enriches the incident with ownership, SLA and operational metadata, and resolves the playbook from the CMDB.
+The handler uses the Prometheus `job` label as the service identifier, looks the service up in the CMDB, enriches the incident with ownership, SLA and operational metadata, and resolves the playbook from the CMDB. `handle_alert` is decomposed into modular lifecycle and duplicate reconciliation helper functions (`_reconcile_duplicate_alert`, `_create_new_incident_from_alert`) for clean separation of ingestion concerns.
+
+Environment settings and service configuration are managed through centralized, immutable dataclasses defined in `automation/response_engine/config.py` (`DatabaseSettings`, `PrometheusSettings`, `DiagnosticsSettings`, `CMDBSettings`, `AlertmanagerSettings`). This provides consistent validation, fallback defaults, and dynamic repo-relative CMDB path resolution when executing outside Docker containers (such as in local CLI tools or tests).
 
 The worker loads the CMDB once at process startup, not per poll cycle or per incident. Before executing a playbook, it checks that the incident's service still exists in that loaded snapshot; if the service is missing — because it was removed or renamed from `cmdb/services.yaml` after the worker started — the incident is escalated rather than retried forever. Because the CMDB is loaded once at startup, changes to `cmdb/services.yaml` are not visible to a running worker. Picking up a CMDB change requires restarting the worker.
 
@@ -309,7 +311,7 @@ There's a partial unique index on `fingerprint` where the status isn't terminal.
 | `message`                  | text                                                               |
 | `payload`                  | jsonb                                                              |
 
-Nothing in this table is ever updated or deleted. I considered versioning the incident row instead, but an event log is simpler and gives me the audit trail, the timeline rendering, and the history in one mechanism.
+Nothing in this table is ever updated or deleted. I considered versioning the incident row instead, but an event log is simpler and gives me the audit trail, the timeline rendering, and the history in one mechanism. Monotonic event sequence numbers per incident are generated centrally via `create_incident_event` in `events.py` using PostgreSQL row-level locking (`SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM incident_events WHERE incident_id = %s FOR UPDATE`) to prevent race conditions during concurrent updates.
 
 ### `remediation_attempts`
 
@@ -599,3 +601,5 @@ I froze this at v1.0 before starting Phase 1. I'll update it if building reveals
 This is the v1.1 reconciliation pass: ten discrepancies between this document and the implemented system, discovered and recorded during Phase 1 in `docs/implementation-findings.md`, were folded back into the relevant sections above in one batched update, per the policy stated in the paragraph above. See `CHANGELOG.md` for a summary of what changed. One finding (CMDB-driven recovery verification) was already adequately covered by ADR-008, so no new ADR was needed for this pass.
 
 This is the Phase 2 reconciliation pass (2026-08-09): three Phase 2 discrepancies/clarifications (findings 11, 12, and 13 covering Alertmanager silence maintenance suppression, asynchronous SLA breach evaluation with `clock_timestamp()`, and decoupled report generation) were recorded in `docs/implementation-findings.md`, reconciled into project documentation, and formalized as ADRs 009, 010, and 011 alongside new Phase 2 operational runbooks.
+
+This is the v2.1 post-Phase 2 architectural refactoring pass (2026-08-09): recorded centralized configuration dataclasses (`automation/response_engine/config.py`), database row-level locking for per-incident event sequence generation (`events.py`), modular alert processing lifecycle helpers (`handlers.py`), dynamic CMDB path resolution, and strict database connection type hinting across response engine modules.

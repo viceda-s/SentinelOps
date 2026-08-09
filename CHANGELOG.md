@@ -4,7 +4,21 @@ All notable changes to SentinelOps's design are recorded here. This
 tracks changes to `docs/DESIGN.md`'s recorded decisions, not every commit
 — see git history for full implementation detail.
 
-## [2.0] - 2026-08-09
+## [2.1] - 2026-08-09
+
+### Added
+
+- Introduced `automation/response_engine/config.py` with immutable configuration dataclasses (`DatabaseSettings`, `PrometheusSettings`, `DiagnosticsSettings`, `CMDBSettings`, `AlertmanagerSettings`) for centralized environment variable management.
+- Implemented centralized event sequence generation in `automation/response_engine/events.py` using PostgreSQL row-level locking (`SELECT ... FOR UPDATE`) to enforce strictly monotonic event sequence numbers across concurrent operations.
+
+### Changed
+
+- Decomposed `automation/response_engine/handlers.py` into dedicated helper functions (`_reconcile_duplicate_alert`, `_create_new_incident_from_alert`) for improved alert processing modularity and maintainability.
+- Decoupled `CMDB_PATH` resolution across scripts (`validate_cmdb.py`, `close_incident.py`, `health_page.py`) to support both containerized execution and local CLI/test invocations.
+- Added explicit database connection type hints (`psycopg2.extensions.connection`) across all response engine modules.
+- Reconciled `README.md` and `docs/DESIGN.md` with post-Phase 2 architectural refactorings.
+
+## [2.0] - 2026-08-08
 
 ### Added
 

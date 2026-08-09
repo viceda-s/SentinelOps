@@ -41,6 +41,13 @@ Phase 1 core infrastructure includes:
 * Operational runbooks (`maintenance-windows.md`, `incident-closure-and-reports.md`, `backup-and-disaster-recovery.md`, `disk-cleanup.md`)
 * Architecture Decision Records 009, 010, and 011
 
+**Phase 2 Architectural Refactorings (v2.1)** enhance codebase maintainability and concurrency safety:
+
+* Centralized domain configuration dataclasses (`automation/response_engine/config.py`)
+* Row-level PostgreSQL locking for strictly monotonic per-incident event sequence generation (`events.py`)
+* Modular alert ingestion lifecycle helper decomposition (`handlers.py`)
+* Dynamic repository-relative CMDB path resolution across CLI scripts and test suites
+
 Future phases focus on extending the platform rather than completing the core incident response workflow.
 
 ---
@@ -106,9 +113,11 @@ These principles are documented in the project's Architecture Decision Records
 ## Response Engine
 
 * Alert ingestion and CMDB enrichment
+* Centralized domain configuration dataclasses (`automation/response_engine/config.py`)
 * Fingerprint-based incident deduplication
 * PostgreSQL-backed incident store
 * Concurrent worker coordination using `FOR UPDATE SKIP LOCKED`
+* Atomic per-incident event sequence generation using database row locking (`events.py`)
 * Explicit incident state machine
 * Structured audit trail
 * Structured JSON logging
