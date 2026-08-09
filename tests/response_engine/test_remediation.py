@@ -419,6 +419,36 @@ def test_get_disk_free_percent_wraps_request_failures():
         get_disk_free_percent("node-exporter:9100", "/var/lib/docker")
 
 
+def test_get_disk_free_percent_wraps_http_errors():
+    import urllib.error
+
+    from automation.response_engine.remediation import (
+        DiskMeasurementUnavailable,
+        get_disk_free_percent,
+    )
+
+    #
+    # HTTPError is a distinct failure mode from a connection-level URLError
+    # (e.g. Prometheus itself returning 503) and deserves its own test, even
+    # though HTTPError is a URLError subclass and the existing except clause
+    # already catches it correctly.
+    #
+    with (
+        patch(
+            "automation.response_engine.remediation.urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError(
+                "http://prometheus:9090/api/v1/query",
+                503,
+                "Service Unavailable",
+                {},
+                None,
+            ),
+        ),
+        pytest.raises(DiskMeasurementUnavailable, match="Prometheus query failed"),
+    ):
+        get_disk_free_percent("node-exporter:9100", "/var/lib/docker")
+
+
 def test_get_disk_free_percent_raises_on_stale_sample():
     from unittest.mock import MagicMock
 
