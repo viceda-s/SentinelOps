@@ -9,6 +9,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
+from .events import get_next_sequence
 from .metrics import (
     INCIDENT_RESOLUTION_SECONDS,
     INCIDENT_RESPONSE_SECONDS,
@@ -103,16 +104,7 @@ def transition(conn, incident: dict, to_status: str, actor: str, message: str) -
             )
 
         # Allocate next audit sequence number.
-        cur.execute(
-            """
-            SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
-            FROM incident_events
-            WHERE incident_id = %s
-            """,
-            (incident["id"],),
-        )
-
-        sequence = cur.fetchone()["next_sequence"]
+        sequence = get_next_sequence(conn, incident["id"])
 
         # Insert audit event.
         cur.execute(

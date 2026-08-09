@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import psycopg2
 from psycopg2.extras import Json
 
+from .events import get_next_sequence
 from .metrics import INCIDENTS_CREATED_TOTAL
 from .state_machine import transition
 
@@ -57,19 +58,9 @@ def record_note_event(
     if payload is None:
         payload = {}
 
+    sequence = get_next_sequence(conn, incident["id"])
+
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT COALESCE(MAX(sequence), 0) + 1
-            AS next_sequence
-            FROM incident_events
-            WHERE incident_id = %s
-            """,
-            (incident["id"],),
-        )
-
-        sequence = cur.fetchone()["next_sequence"]
-
         cur.execute(
             """
             INSERT INTO incident_events (

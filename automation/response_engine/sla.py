@@ -12,6 +12,7 @@ import logging
 
 from psycopg2.extras import Json
 
+from .events import get_next_sequence
 from .metrics import SLA_BREACHES_TOTAL
 
 _RESPONSE_BREACH_SQL = """
@@ -50,17 +51,7 @@ def _check_one(conn, sql: str, breach_type: str, message: str) -> None:
         cur.execute(sql)
         breached = cur.fetchall()
         for incident in breached:
-            cur.execute(
-                """
-                SELECT COALESCE(MAX(sequence), 0) + 1
-                AS next_sequence
-                FROM incident_events
-                WHERE incident_id = %s
-                """,
-                (incident["id"],),
-            )
-
-            sequence = cur.fetchone()["next_sequence"]
+            sequence = get_next_sequence(conn, incident["id"])
 
             cur.execute(
                 """
