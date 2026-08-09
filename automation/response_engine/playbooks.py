@@ -10,5 +10,6 @@ IMPLEMENTED_PLAYBOOKS = frozenset(
     {
         "restart_service",
         "collect_diagnostics",
+        "disk_cleanup",
     }
 )

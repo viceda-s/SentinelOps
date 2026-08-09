@@ -18,6 +18,7 @@ from .logging_config import configure_logging
 from .metrics import WORKER_HEARTBEAT_TIMESTAMP
 from .remediation import (
     collect_diagnostics,
+    disk_cleanup,
     restart_service,
 )
 from .sla import check_sla_breaches
@@ -43,6 +44,14 @@ def dispatch(conn, client, incident: dict, cmdb: dict) -> None:
 
     elif playbook == "collect_diagnostics":
         collect_diagnostics(
+            conn,
+            client,
+            incident,
+            cmdb,
+        )
+
+    elif playbook == "disk_cleanup":
+        disk_cleanup(
             conn,
             client,
             incident,
