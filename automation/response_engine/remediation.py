@@ -10,16 +10,15 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import docker
 
+from .config import DiagnosticsSettings, PrometheusSettings
 from .metrics import REMEDIATION_ATTEMPTS_TOTAL
 from .state_machine import transition
 from .verification import verify_recovery
@@ -28,22 +27,14 @@ VERIFY_TIMEOUT = 30
 VERIFY_INTERVAL = 1
 RESTART_COOLDOWN = 5
 MAX_RESTART_ATTEMPTS = 2
-DIAGNOSTICS_DIR = Path("/app/diagnostics")
 
-# disk_cleanup configuration.
-#
-# Recovery is verified through Prometheus using the incident's instance and
-# mountpoint labels. Do not inspect the host filesystem from the worker:
-# the container filesystem is not a reliable representation of host disk
-# usage, and host mounts expose unnecessary credentials/secrets.
-PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
+PROMETHEUS_SETTINGS = PrometheusSettings.from_env()
+DIAGNOSTICS_SETTINGS = DiagnosticsSettings.from_env()
 
-# Must match the DiskPressure alert's configured free-space threshold.
-DISK_PRESSURE_FREE_PERCENT = float(os.environ.get("DISK_PRESSURE_FREE_PERCENT", "15"))
-
-# Diagnostics artifacts accumulate with incident volume, so retention is
-# age-based rather than count-based.
-DIAGNOSTICS_RETENTION_DAYS = int(os.environ.get("DIAGNOSTICS_RETENTION_DAYS", "14"))
+PROMETHEUS_URL = PROMETHEUS_SETTINGS.url
+DISK_PRESSURE_FREE_PERCENT = PROMETHEUS_SETTINGS.disk_pressure_free_percent
+DIAGNOSTICS_RETENTION_DAYS = DIAGNOSTICS_SETTINGS.retention_days
+DIAGNOSTICS_DIR = DIAGNOSTICS_SETTINGS.dir_path
 
 
 def record_attempt_start(conn, incident: dict, playbook: str) -> int:

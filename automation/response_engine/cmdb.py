@@ -7,17 +7,16 @@ from the YAML configuration file on disk.
 
 from __future__ import annotations
 
-import os
-
 import yaml
 
+from .config import CMDBSettings
 
-def load_cmdb() -> dict:
+
+def load_cmdb(settings: CMDBSettings | None = None) -> dict:
     """
     Load and parse the SentinelOps Configuration Management Database (CMDB).
 
-    Reads from the path specified by the `CMDB_PATH` environment variable, falling back
-    to `/app/cmdb/services.yaml`.
+    Reads from the path specified by CMDBSettings.
 
     Returns:
         dict: Parsed CMDB configuration mapping service keys to operational metadata.
@@ -26,8 +25,8 @@ def load_cmdb() -> dict:
         FileNotFoundError: If the CMDB configuration file cannot be found.
         yaml.YAMLError: If the CMDB file contains invalid YAML.
     """
+    if settings is None:
+        settings = CMDBSettings.from_env()
 
-    cmdb_path = os.environ.get("CMDB_PATH", "/app/cmdb/services.yaml")
-
-    with open(cmdb_path, encoding="utf-8") as f:
+    with open(settings.path, encoding="utf-8") as f:
         return yaml.safe_load(f)

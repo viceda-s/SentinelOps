@@ -7,28 +7,29 @@ Provides helper functions for instantiating PostgreSQL connections configured wi
 
 from __future__ import annotations
 
-import os
-
 import psycopg2
 import psycopg2.extras
 
+from .config import DatabaseSettings
 
-def get_connection():
+
+def get_connection(settings: DatabaseSettings | None = None):
     """
     Create a PostgreSQL connection configured for response engine services.
 
-    Reads database credentials from environment variables (`RESPONSE_ENGINE_DB_USER`,
-    `RESPONSE_ENGINE_DB_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`).
+    Reads database credentials from DatabaseSettings configuration object or environment.
 
     Returns:
         psycopg2.connection: A new PostgreSQL connection using RealDictCursor.
     """
+    if settings is None:
+        settings = DatabaseSettings.from_env()
 
     return psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "postgres"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        user=os.environ["RESPONSE_ENGINE_DB_USER"],
-        password=os.environ["RESPONSE_ENGINE_DB_PASSWORD"],
-        dbname=os.getenv("POSTGRES_DB", "postgres"),
+        host=settings.host,
+        port=settings.port,
+        user=settings.user,
+        password=settings.password,
+        dbname=settings.dbname,
         cursor_factory=psycopg2.extras.RealDictCursor,
     )

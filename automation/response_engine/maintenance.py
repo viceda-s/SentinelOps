@@ -8,7 +8,6 @@ the `SUPPRESSED_MAINTENANCE` state, and reconciles collisions with active incide
 from __future__ import annotations
 
 import logging
-import os
 import time
 from datetime import datetime
 
@@ -17,6 +16,7 @@ import requests
 from prometheus_client import start_http_server
 
 from .cmdb import load_cmdb
+from .config import AlertmanagerSettings
 from .db import get_connection
 from .handlers import ingest_alert, record_note_event
 from .logging_config import configure_logging
@@ -279,12 +279,7 @@ def main() -> None:
 
     while True:
         try:
-            alerts = fetch_suppressed_alerts(
-                os.getenv(
-                    "ALERTMANAGER_URL",
-                    "http://alertmanager:9093",
-                )
-            )
+            alerts = fetch_suppressed_alerts(AlertmanagerSettings.from_env().url)
 
             for alert in alerts:
                 try:
