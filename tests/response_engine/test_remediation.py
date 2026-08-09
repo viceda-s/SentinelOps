@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import os
 import time
+import urllib.error
+import urllib.parse
 from unittest.mock import MagicMock, patch
 
 import pytest
+from psycopg2.extras import Json
 
 import docker
 from automation.response_engine.remediation import disk_cleanup
@@ -52,10 +55,13 @@ def test_resolves_when_cleanup_frees_enough_space(
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
         playbook="disk_cleanup",
+        labels=Json(
+            {"instance": "node-exporter:9100", "mountpoint": "/var/lib/docker"}
+        ),
     )
 
     with patch(
-        "automation.response_engine.remediation.free_percent",
+        "automation.response_engine.remediation.get_disk_free_percent",
         return_value=42.0,
     ):
         disk_cleanup(db_connection, docker_client, incident, CMDB)
@@ -73,10 +79,13 @@ def test_escalates_when_disk_still_low(db_connection, make_incident, docker_clie
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
         playbook="disk_cleanup",
+        labels=Json(
+            {"instance": "node-exporter:9100", "mountpoint": "/var/lib/docker"}
+        ),
     )
 
     with patch(
-        "automation.response_engine.remediation.free_percent",
+        "automation.response_engine.remediation.get_disk_free_percent",
         return_value=3.0,
     ):
         disk_cleanup(db_connection, docker_client, incident, CMDB)
@@ -98,10 +107,13 @@ def test_never_prunes_volumes(db_connection, make_incident, docker_client):
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
         playbook="disk_cleanup",
+        labels=Json(
+            {"instance": "node-exporter:9100", "mountpoint": "/var/lib/docker"}
+        ),
     )
 
     with patch(
-        "automation.response_engine.remediation.free_percent",
+        "automation.response_engine.remediation.get_disk_free_percent",
         return_value=42.0,
     ):
         disk_cleanup(db_connection, docker_client, incident, CMDB)
@@ -120,10 +132,13 @@ def test_prunes_exactly_the_three_intended_surfaces(
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
         playbook="disk_cleanup",
+        labels=Json(
+            {"instance": "node-exporter:9100", "mountpoint": "/var/lib/docker"}
+        ),
     )
 
     with patch(
-        "automation.response_engine.remediation.free_percent",
+        "automation.response_engine.remediation.get_disk_free_percent",
         return_value=42.0,
     ):
         disk_cleanup(db_connection, docker_client, incident, CMDB)
@@ -144,6 +159,9 @@ def test_records_failure_and_reraises_on_docker_api_error(
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
         playbook="disk_cleanup",
+        labels=Json(
+            {"instance": "node-exporter:9100", "mountpoint": "/var/lib/docker"}
+        ),
     )
 
     docker_client.containers.prune.side_effect = docker.errors.APIError("boom")
@@ -164,6 +182,9 @@ def test_records_failure_and_escalates_when_diagnostics_pruning_fails(
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
         playbook="disk_cleanup",
+        labels=Json(
+            {"instance": "node-exporter:9100", "mountpoint": "/var/lib/docker"}
+        ),
     )
 
     #
@@ -201,18 +222,27 @@ def test_records_failure_and_escalates_when_filesystem_recheck_fails(
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
         playbook="disk_cleanup",
+        labels=Json(
+            {"instance": "node-exporter:9100", "mountpoint": "/var/lib/docker"}
+        ),
     )
 
     #
     # Docker cleanup and diagnostics pruning both succeeded, but the
-    # post-cleanup filesystem re-check could not be performed. This is a
-    # distinct failure mode from the diagnostics-pruning failure above -- the
-    # playbook cannot even tell whether the incident recovered -- and carries
-    # its own escalation message.
+    # post-cleanup Prometheus re-check could not be performed (e.g. the
+    # request failed) at every poll within the bounded re-check window. This
+    # is a distinct failure mode from the diagnostics-pruning failure above --
+    # the playbook cannot even tell whether the incident recovered -- and
+    # carries its own escalation message.
     #
-    with patch(
-        "automation.response_engine.remediation.free_percent",
-        side_effect=OSError("no such file or directory"),
+    from automation.response_engine.remediation import DiskMeasurementUnavailable
+
+    with (
+        patch(
+            "automation.response_engine.remediation.get_disk_free_percent",
+            side_effect=DiskMeasurementUnavailable("Prometheus query failed: timeout"),
+        ),
+        patch("automation.response_engine.remediation.time.sleep"),
     ):
         disk_cleanup(db_connection, docker_client, incident, CMDB)
 
@@ -221,7 +251,7 @@ def test_records_failure_and_escalates_when_filesystem_recheck_fails(
     attempts = _attempts(db_connection, incident["id"])
     assert len(attempts) == 1
     assert attempts[0]["result"] == "failure"
-    assert "no such file or directory" in attempts[0]["error"]
+    assert "Prometheus query failed" in attempts[0]["error"]
 
     with db_connection.cursor() as cur:
         cur.execute(
@@ -230,6 +260,382 @@ def test_records_failure_and_escalates_when_filesystem_recheck_fails(
         )
         messages = [row["message"] for row in cur.fetchall()]
     assert "Unable to verify disk pressure after cleanup" in messages
+
+
+@pytest.mark.parametrize(
+    "labels",
+    [
+        {},
+        {"instance": "node-exporter:9100"},
+        {"mountpoint": "/var/lib/docker"},
+    ],
+    ids=["both-missing", "mountpoint-missing", "instance-missing"],
+)
+def test_records_failure_and_escalates_when_alert_missing_disk_labels(
+    db_connection, make_incident, docker_client, labels
+):
+    incident = make_incident(
+        status="ACKNOWLEDGED",
+        alert_name="DiskPressure",
+        playbook="disk_cleanup",
+        labels=Json(labels),
+    )
+
+    #
+    # Alertmanager always attaches instance/mountpoint for a real
+    # DiskPressure alert, but a malformed or synthetic one might not. The
+    # playbook must not guess which filesystem to verify -- treat this the
+    # same as any other measurement failure: failure + ESCALATED, never
+    # RESOLVED. Each of the three parametrized cases must independently
+    # trigger this path, not just the case where both labels are absent.
+    #
+    disk_cleanup(db_connection, docker_client, incident, CMDB)
+
+    assert _status(db_connection, incident["id"]) == "ESCALATED"
+
+    attempts = _attempts(db_connection, incident["id"])
+    assert len(attempts) == 1
+    assert attempts[0]["result"] == "failure"
+    assert "instance/mountpoint" in attempts[0]["error"]
+
+    #
+    # No Prometheus query was even attempted -- the label check happens
+    # first.
+    #
+    docker_client.containers.prune.assert_called_once()
+
+
+def test_get_disk_free_percent_raises_on_zero_or_multiple_series():
+    from unittest.mock import MagicMock
+
+    from automation.response_engine.remediation import (
+        DiskMeasurementUnavailable,
+        get_disk_free_percent,
+    )
+
+    now = time.time()
+    zero_series_body = (
+        b'{"status": "success", "data": {"resultType": "vector", "result": []}}'
+    )
+    two_series_body = (
+        f'{{"status": "success", "data": {{"resultType": "vector", "result": ['
+        f'{{"metric": {{}}, "value": [{now}, "50"]}}, '
+        f'{{"metric": {{}}, "value": [{now}, "60"]}}'
+        f"]}}}}"
+    ).encode()
+
+    for body in (zero_series_body, two_series_body):
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.read.return_value = body
+
+        with (
+            patch(
+                "automation.response_engine.remediation.urllib.request.urlopen",
+                return_value=mock_resp,
+            ),
+            pytest.raises(DiskMeasurementUnavailable),
+        ):
+            get_disk_free_percent("node-exporter:9100", "/var/lib/docker")
+
+
+def test_get_disk_free_percent_raises_on_non_success_status():
+    from unittest.mock import MagicMock
+
+    from automation.response_engine.remediation import (
+        DiskMeasurementUnavailable,
+        get_disk_free_percent,
+    )
+
+    #
+    # A malformed or error response must not reach the series-count check at
+    # all -- it fails on the status field first, with a message that says so
+    # rather than a generic "got 0 series".
+    #
+    mock_resp = MagicMock()
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.read.return_value = b'{"status": "error", "error": "bad query"}'
+
+    with (
+        patch(
+            "automation.response_engine.remediation.urllib.request.urlopen",
+            return_value=mock_resp,
+        ),
+        pytest.raises(DiskMeasurementUnavailable, match="non-success"),
+    ):
+        get_disk_free_percent("node-exporter:9100", "/var/lib/docker")
+
+
+def test_get_disk_free_percent_raises_on_non_vector_result_type():
+    from unittest.mock import MagicMock
+
+    from automation.response_engine.remediation import (
+        DiskMeasurementUnavailable,
+        get_disk_free_percent,
+    )
+
+    #
+    # An instant query always returns resultType "vector". Anything else
+    # (e.g. "matrix", from a malformed range-style query) means the query
+    # itself was wrong and the response must not be trusted.
+    #
+    mock_resp = MagicMock()
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.read.return_value = (
+        b'{"status": "success", "data": {"resultType": "matrix", "result": []}}'
+    )
+
+    with (
+        patch(
+            "automation.response_engine.remediation.urllib.request.urlopen",
+            return_value=mock_resp,
+        ),
+        pytest.raises(DiskMeasurementUnavailable, match="instant vector"),
+    ):
+        get_disk_free_percent("node-exporter:9100", "/var/lib/docker")
+
+
+def test_get_disk_free_percent_wraps_request_failures():
+    import urllib.error
+
+    from automation.response_engine.remediation import (
+        DiskMeasurementUnavailable,
+        get_disk_free_percent,
+    )
+
+    #
+    # Proves urllib failures actually reach DiskMeasurementUnavailable rather
+    # than propagating as a raw URLError -- the disk_cleanup-level test only
+    # proves the caller handles DiskMeasurementUnavailable correctly, not that
+    # the HTTP layer produces it.
+    #
+    with (
+        patch(
+            "automation.response_engine.remediation.urllib.request.urlopen",
+            side_effect=urllib.error.URLError("connection refused"),
+        ),
+        pytest.raises(DiskMeasurementUnavailable, match="connection refused"),
+    ):
+        get_disk_free_percent("node-exporter:9100", "/var/lib/docker")
+
+
+def test_get_disk_free_percent_raises_on_stale_sample():
+    from unittest.mock import MagicMock
+
+    from automation.response_engine.remediation import (
+        DISK_SAMPLE_MAX_AGE_SECONDS,
+        DiskMeasurementUnavailable,
+        get_disk_free_percent,
+    )
+
+    #
+    # The most dangerous Prometheus-specific failure mode this redesign must
+    # guard against: node-exporter stops scraping while its last sample read
+    # comfortably above the threshold, and Prometheus keeps serving that
+    # stale value forever. A retry loop alone does not catch this, since
+    # every retry gets the identical stale sample -- only a freshness check
+    # on the sample's own timestamp does.
+    #
+    stale_timestamp = time.time() - (DISK_SAMPLE_MAX_AGE_SECONDS + 30)
+    mock_resp = MagicMock()
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.read.return_value = (
+        f'{{"status": "success", "data": {{"resultType": "vector", "result": '
+        f'[{{"metric": {{}}, "value": [{stale_timestamp}, "50"]}}]}}}}'
+    ).encode()
+
+    with (
+        patch(
+            "automation.response_engine.remediation.urllib.request.urlopen",
+            return_value=mock_resp,
+        ),
+        pytest.raises(DiskMeasurementUnavailable, match="stale"),
+    ):
+        get_disk_free_percent("node-exporter:9100", "/var/lib/docker")
+
+
+def test_get_disk_free_percent_accepts_a_fresh_sample():
+    from unittest.mock import MagicMock
+
+    from automation.response_engine.remediation import get_disk_free_percent
+
+    #
+    # The counterpart to the staleness test above: a sample well within
+    # DISK_SAMPLE_MAX_AGE_SECONDS must be accepted normally.
+    #
+    fresh_timestamp = time.time() - 5
+    mock_resp = MagicMock()
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.read.return_value = (
+        f'{{"status": "success", "data": {{"resultType": "vector", "result": '
+        f'[{{"metric": {{}}, "value": [{fresh_timestamp}, "50"]}}]}}}}'
+    ).encode()
+
+    with patch(
+        "automation.response_engine.remediation.urllib.request.urlopen",
+        return_value=mock_resp,
+    ):
+        assert get_disk_free_percent("node-exporter:9100", "/var/lib/docker") == 50.0
+
+
+def test_get_disk_free_percent_rejects_sample_that_predates_cleanup():
+    from unittest.mock import MagicMock
+
+    from automation.response_engine.remediation import (
+        DiskMeasurementUnavailable,
+        get_disk_free_percent,
+    )
+
+    #
+    # A sample can be well within DISK_SAMPLE_MAX_AGE_SECONDS and still have
+    # been taken before cleanup finished -- freshness alone does not prove
+    # the measurement reflects the cleanup's effect. Simulate: cleanup
+    # finished 2s ago, but the available Prometheus sample is from 5s ago
+    # (before cleanup completed), well within the 30s staleness window but
+    # still the wrong sample to trust.
+    #
+    cleanup_completed_at = time.time() - 2
+    pre_cleanup_sample_timestamp = time.time() - 5
+
+    mock_resp = MagicMock()
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.read.return_value = (
+        f'{{"status": "success", "data": {{"resultType": "vector", "result": '
+        f'[{{"metric": {{}}, "value": [{pre_cleanup_sample_timestamp}, "50"]}}]}}}}'
+    ).encode()
+
+    with (
+        patch(
+            "automation.response_engine.remediation.urllib.request.urlopen",
+            return_value=mock_resp,
+        ),
+        pytest.raises(DiskMeasurementUnavailable, match="predates cleanup"),
+    ):
+        get_disk_free_percent(
+            "node-exporter:9100",
+            "/var/lib/docker",
+            not_before=cleanup_completed_at,
+        )
+
+
+def test_get_disk_free_percent_accepts_sample_taken_after_cleanup():
+    from unittest.mock import MagicMock
+
+    from automation.response_engine.remediation import get_disk_free_percent
+
+    #
+    # The counterpart to the test above: a sample timestamped after
+    # cleanup_completed_at must be accepted, proving not_before doesn't
+    # reject valid post-cleanup measurements.
+    #
+    cleanup_completed_at = time.time() - 5
+    post_cleanup_sample_timestamp = time.time() - 1
+
+    mock_resp = MagicMock()
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.read.return_value = (
+        f'{{"status": "success", "data": {{"resultType": "vector", "result": '
+        f'[{{"metric": {{}}, "value": [{post_cleanup_sample_timestamp}, "42"]}}]}}}}'
+    ).encode()
+
+    with patch(
+        "automation.response_engine.remediation.urllib.request.urlopen",
+        return_value=mock_resp,
+    ):
+        result = get_disk_free_percent(
+            "node-exporter:9100",
+            "/var/lib/docker",
+            not_before=cleanup_completed_at,
+        )
+
+    assert result == 42.0
+
+
+def test_get_disk_free_percent_rejects_non_finite_and_out_of_range_values():
+    from unittest.mock import MagicMock
+
+    from automation.response_engine.remediation import (
+        DiskMeasurementUnavailable,
+        get_disk_free_percent,
+    )
+
+    #
+    # Prometheus can serialize +Inf/-Inf/NaN as JSON strings, and
+    # float("+Inf") parses without error -- an unvalidated value like that
+    # would satisfy `>= threshold` and produce a false RESOLVED from a value
+    # that was never a real percentage. Also reject an in-range-looking but
+    # impossible percentage (150) as a defensive bound.
+    #
+    now = time.time()
+    for bad_value in ("+Inf", "-Inf", "NaN", "150"):
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.read.return_value = (
+            f'{{"status": "success", "data": {{"resultType": "vector", "result": '
+            f'[{{"metric": {{}}, "value": [{now}, "{bad_value}"]}}]}}}}'
+        ).encode()
+
+        with (
+            patch(
+                "automation.response_engine.remediation.urllib.request.urlopen",
+                return_value=mock_resp,
+            ),
+            pytest.raises(DiskMeasurementUnavailable),
+        ):
+            get_disk_free_percent("node-exporter:9100", "/var/lib/docker")
+
+
+def test_get_disk_free_percent_query_matches_alert_selection_semantics():
+    from unittest.mock import MagicMock
+
+    from automation.response_engine.remediation import get_disk_free_percent
+
+    now = time.time()
+    mock_resp = MagicMock()
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.read.return_value = (
+        f'{{"status": "success", "data": {{"resultType": "vector", "result": '
+        f'[{{"metric": {{}}, "value": [{now}, "42.5"]}}]}}}}'
+    ).encode()
+
+    captured_url = {}
+
+    def _fake_urlopen(url, timeout=None):
+        captured_url["url"] = url
+        return mock_resp
+
+    with patch(
+        "automation.response_engine.remediation.urllib.request.urlopen",
+        side_effect=_fake_urlopen,
+    ):
+        result = get_disk_free_percent("node-exporter:9100", "/var/lib/docker")
+
+    assert result == 42.5
+
+    #
+    # The query, url-decoded, must reproduce the alert rule's own selection
+    # semantics EXACTLY (docker/prometheus/rules/alerts.yml:5) -- BOTH
+    # exclusions, not just fstype. This is the regression guard for the
+    # redesign's central correctness claim: the re-check measures exactly
+    # the filesystem the alert fired on.
+    #
+    decoded_query = urllib.parse.unquote(captured_url["url"])
+    assert 'job="node-exporter"' in decoded_query
+    assert 'instance="node-exporter:9100"' in decoded_query
+    assert 'mountpoint="/var/lib/docker"' in decoded_query
+    assert 'fstype!~"tmpfs|erofs|overlay|squashfs"' in decoded_query
+    assert 'mountpoint!~"/oldroot|/run.*"' in decoded_query
+
+
+def test_promql_string_escapes_special_characters():
+    from automation.response_engine.remediation import _promql_string
+
+    #
+    # A label containing a quote or backslash must produce a query PromQL can
+    # still parse correctly, not a broken or injected string literal.
+    #
+    assert _promql_string('weird"quote') == '"weird\\"quote"'
+    assert _promql_string("back\\slash") == '"back\\\\slash"'
 
 
 def test_escalates_when_service_missing_from_cmdb(
