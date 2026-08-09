@@ -4,6 +4,14 @@ All notable changes to SentinelOps's design are recorded here. This
 tracks changes to `docs/DESIGN.md`'s recorded decisions, not every commit
 — see git history for full implementation detail.
 
+## [Unreleased]
+
+### Added
+
+- Added `ROADMAP.md` as the authoritative execution plan for **Phase 3 — Production Readiness & Extensibility** and post-v1 expansion.
+- Reconciled project documentation (`README.md`, `docs/DESIGN.md`) with explicit Phase 3 scope boundaries (Tier 1: Engineering Rigor, Tier 2: Extensibility, Tier 3: Operational Intelligence).
+- Documented technical rationale for excluding Kubernetes, Kafka, and Redis in favor of PostgreSQL `FOR UPDATE SKIP LOCKED` and simple multi-container orchestration.
+
 ## [2.1] - 2026-08-09
 
 ### Added
@@ -32,7 +40,7 @@ tracks changes to `docs/DESIGN.md`'s recorded decisions, not every commit
 - Updated `README.md` and `docs/DESIGN.md` to reflect Phase 2 completion.
 - Reconciled `docs/adr/README.md` index table with Phase 2 ADR additions.
 
-## [1.1] - 2026-08-05
+## [1.1] - 2026-08-01
 
 ### Changed
 

@@ -48,7 +48,9 @@ Phase 1 core infrastructure includes:
 * Modular alert ingestion lifecycle helper decomposition (`handlers.py`)
 * Dynamic repository-relative CMDB path resolution across CLI scripts and test suites
 
-Future phases focus on extending the platform rather than completing the core incident response workflow.
+**Phase 3 — Production Readiness & Extensibility** is currently under active execution, focusing on engineering rigor (CI/CD pipeline, automated E2E chaos harness), architectural extensibility (reliability primitives, generalized event model, formalized `/api/v1` REST interface, remediation plugin registry), and operational intelligence (alert correlation, operational analytics, AI Knowledge Assistant).
+
+See `ROADMAP.md` for the complete implementation roadmap and post-v1 expansion plan.
 
 ---
 
@@ -353,21 +355,9 @@ These trade-offs are appropriate for a learning environment but would be replace
 
 # Future Work
 
-Phase 1 and Phase 2 establish the complete autonomous incident response and operational layer. Future phases extend the platform with additional operational capabilities rather than changing its core architecture.
+Phase 1 and Phase 2 establish the complete autonomous incident response and operational layer. **Phase 3 — Production Readiness & Extensibility** extends the platform with CI/CD automation, automated E2E chaos testing, formalized API interfaces, reliability primitives, alert correlation, and AI-assisted operations.
 
-### Automation
-
-* Additional remediation playbooks
-* Notification integrations
-* Automated testing
-
-### Platform
-
-* ShellCheck integration
-* CI/CD improvements
-* Cloud deployment
-
-The complete implementation roadmap is documented in `docs/DESIGN.md`.
+The complete implementation priorities, architectural trade-offs, and post-v1 expansion plan are documented in `ROADMAP.md`.
 
 ---
 
