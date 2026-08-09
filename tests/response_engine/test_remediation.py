@@ -108,6 +108,8 @@ def test_resolves_when_cleanup_frees_enough_space(
 def test_escalates_when_disk_still_low(
     db_connection, make_incident, docker_client, fake_clock
 ):
+    from automation.response_engine.remediation import DISK_RECHECK_TIMEOUT
+
     incident = make_incident(
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
@@ -117,11 +119,23 @@ def test_escalates_when_disk_still_low(
         ),
     )
 
+    start = fake_clock[0]
+
     with patch(
         "automation.response_engine.remediation.get_disk_free_percent",
         return_value=3.0,
-    ):
+    ) as mock_get_disk_free_percent:
         disk_cleanup(db_connection, docker_client, incident, CMDB)
+
+    #
+    # The fake clock only advances via time.sleep(), so these two assertions
+    # together prove the retry loop actually ran to its bound rather than
+    # exiting after a single measurement -- a future change that accidentally
+    # dropped the retry loop (e.g. checking once and escalating immediately)
+    # would still satisfy every other assertion in this test.
+    #
+    assert mock_get_disk_free_percent.call_count > 1
+    assert fake_clock[0] == pytest.approx(start + DISK_RECHECK_TIMEOUT)
 
     assert _status(db_connection, incident["id"]) == "ESCALATED"
 
