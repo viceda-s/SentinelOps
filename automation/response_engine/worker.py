@@ -1,54 +1,58 @@
+"""
+Remediation worker process for SentinelOps.
+
+Claims new incidents from PostgreSQL using row locking (`FOR UPDATE`), executes
+configured playbooks (`restart_service`, `collect_diagnostics`, `disk_cleanup`),
+monitors SLA breach targets, and exports Prometheus metrics.
+"""
+
 from __future__ import annotations
 
 import logging
-import os
 import time
 
-import psycopg2
-import psycopg2.extras
-import yaml
+from prometheus_client import REGISTRY, start_http_server
+from psycopg2.extensions import connection
 
 import docker
 
 from .claim import claim_incident
+from .cmdb import load_cmdb
+from .collectors import (
+    IncidentsCollector,
+    QueueDepthCollector,
+)
+from .db import get_connection
 from .logging_config import configure_logging
+from .metrics import WORKER_HEARTBEAT_TIMESTAMP
 from .remediation import (
     collect_diagnostics,
+    disk_cleanup,
     restart_service,
 )
+from .sla import check_sla_breaches
 from .state_machine import transition
 
-POLL_INTERVAL = 5
+POLL_INTERVAL_SECONDS = 5
 
 logger = logging.getLogger(__name__)
 
 
-def get_connection():
+def dispatch(
+    conn: connection, client: docker.DockerClient, incident: dict, cmdb: dict
+) -> None:
     """
-    Create a PostgreSQL connection.
+    Dispatch an incident to its assigned remediation playbook.
 
-    The worker owns the connection for its lifetime.
+    Args:
+        conn: Active PostgreSQL connection (caller manages transactions).
+        client: Docker SDK client instance.
+        incident: Incident dictionary record from the database.
+        cmdb: Loaded CMDB dictionary structure.
+
+    Raises:
+        RuntimeError: If an unrecognized playbook string is encountered.
     """
-
-    return psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "postgres"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        user=os.environ["POSTGRES_USER"],
-        password=os.environ["POSTGRES_PASSWORD"],
-        dbname=os.getenv("POSTGRES_DB", "postgres"),
-        cursor_factory=psycopg2.extras.RealDictCursor,
-    )
-
-
-def load_cmdb() -> dict:
-    """Load the CMDB."""
-
-    with open("/app/cmdb/services.yaml", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def dispatch(conn, client, incident: dict, cmdb: dict) -> None:
-    """Execute the playbook associated with an incident."""
 
     playbook = incident["playbook"]
 
@@ -62,6 +66,14 @@ def dispatch(conn, client, incident: dict, cmdb: dict) -> None:
 
     elif playbook == "collect_diagnostics":
         collect_diagnostics(
+            conn,
+            client,
+            incident,
+            cmdb,
+        )
+
+    elif playbook == "disk_cleanup":
+        disk_cleanup(
             conn,
             client,
             incident,
@@ -92,7 +104,16 @@ def dispatch(conn, client, incident: dict, cmdb: dict) -> None:
 
 
 def main() -> None:
+    """
+    Execute response engine worker daemon main polling loop.
+    """
     configure_logging()
+
+    REGISTRY.register(IncidentsCollector(get_connection))
+
+    REGISTRY.register(QueueDepthCollector(get_connection))
+
+    start_http_server(8000)
 
     cmdb = load_cmdb()
     client = docker.from_env()
@@ -104,11 +125,16 @@ def main() -> None:
         incident = None
 
         try:
+            WORKER_HEARTBEAT_TIMESTAMP.set_to_current_time()
+
+            check_sla_breaches(conn)
+            conn.commit()
+
             incident = claim_incident(conn)
 
             if incident is None:
                 conn.commit()
-                time.sleep(POLL_INTERVAL)
+                time.sleep(POLL_INTERVAL_SECONDS)
                 continue
 
             logger.info(
@@ -129,13 +155,7 @@ def main() -> None:
 
             conn.commit()
 
-        #
-        # Infrastructure failures.
-        #
-        # restart_service()/collect_diagnostics() already recorded
-        # the failed remediation attempt.
-        #
-
+        # Infrastructure failures: attempt start/finish already recorded by playbook.
         except docker.errors.APIError as exc:
             if incident is not None and incident["status"] not in (
                 "ESCALATED",
@@ -161,14 +181,9 @@ def main() -> None:
                 },
             )
 
-            time.sleep(POLL_INTERVAL)
+            time.sleep(POLL_INTERVAL_SECONDS)
 
-        #
-        # Unexpected programming/configuration errors.
-        #
-        # Roll back so the incident returns to NEW.
-        #
-
+        # Unexpected errors: roll back so incident returns to NEW.
         except Exception:
             conn.rollback()
 
@@ -181,7 +196,7 @@ def main() -> None:
                 },
             )
 
-            time.sleep(POLL_INTERVAL)
+            time.sleep(POLL_INTERVAL_SECONDS)
 
 
 if __name__ == "__main__":

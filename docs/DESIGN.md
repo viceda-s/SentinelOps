@@ -3,8 +3,8 @@
 **Enterprise Incident Response & Operations Lab**
 
 Author: Vicente Coelho
-Last updated: 2026-08-02
-Status: v1.1, reconciled post-Phase 1
+Last updated: 2026-08-09
+Status: v2.0, reconciled post-Phase 2
 
 ---
 
@@ -59,7 +59,7 @@ If I catch myself adding something because it seems interesting rather than beca
 
 - Grafana down → monitoring and remediation keep working
 - Report generator down → incidents are still detected and fixed
-- Prometheus down → the response engine doesn't crash (it never calls Prometheus)
+- Prometheus down → the response engine doesn't crash (`disk_cleanup`'s Prometheus query is the one narrow, deliberate exception to "never calls Prometheus" — a query failure escalates the incident rather than crashing the worker)
 - Worker down → the webhook handler keeps accepting and saving alerts
 - PostgreSQL down → the handler returns an error so Alertmanager retries instead of the alert disappearing
 
@@ -234,7 +234,7 @@ The worker loads the CMDB once at process startup, not per poll cycle or per inc
 | --------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `restart_service`     | Service down                             | Check container exists, restart, wait, check `/health`, max 2 attempts with a cooldown          |
 | `collect_diagnostics` | CPU, memory, error rate, latency         | Snapshot metrics, grab last 100 log lines and container stats, then escalate. Never restarts    |
-| `disk_cleanup`        | Disk pressure                            | Prune reclaimable Docker data and rotate logs in a scoped path, re-check, escalate if still low |
+| `disk_cleanup`        | Disk pressure                            | Prune reclaimable Docker data, prune old diagnostics artifacts by age, re-check via a scoped Prometheus query against the alert's own filesystem, escalate if still low |
 | `none`                | Self-monitoring alerts, unknown services | Record and escalate immediately                                                                 |
 
 **High CPU and high error rate don't trigger a restart, on purpose.** My first version restarted anything that alerted, and I changed it while writing the runbooks. If a service is pegged at 100% CPU and I restart it, I've thrown away the state that would tell me why, and I'll probably see the same alert again in twenty minutes with nothing new to go on. Restarting is only the right automated response when the process is actually gone. For saturation, the useful automated action is to collect evidence while the problem is still happening and hand it to a person.
@@ -574,11 +574,11 @@ Logging and config validation are in Phase 1 because they're conventions rather 
 
 **Done when:** `chaos.sh stop api` produces an incident that gets detected, enriched from the CMDB, acknowledged, restarted, verified, and resolved without me touching anything; the timeline shows every step with timestamps; every log line from that incident is valid JSON with the incident reference; `bootstrap.sh --validate-only` catches a CMDB entry I've deliberately broken; and I've killed each container in turn to check the failure-independence rule holds.
 
-### Phase 2 — the operational layer
+### Phase 2 — the operational layer (Complete)
 
 Maintenance windows, engine `/metrics`, SLA fields and breach calculation, MTTR dashboard, health page, PDF reports, `disk_cleanup`, `backup.sh`, `maintenance.sh`, `healthcheck.sh`, the remaining runbooks and ADRs, self-monitoring alerts.
 
-**Done when:** closing an incident produces a PDF with real diagnostic evidence and an RCA I've written, and Grafana shows MTTR calculated from actual incidents.
+**Done when:** closing an incident produces a PDF with real diagnostic evidence and an RCA I've written, and Grafana shows MTTR calculated from actual incidents. (Completed & Verified).
 
 ### Phase 3 — finishing
 
@@ -597,3 +597,5 @@ Notifications, cloud deployment, Ansible, Loki, alert correlation. These stay in
 I froze this at v1.0 before starting Phase 1. I'll update it if building reveals something that genuinely can't work as designed — not because I've thought of something else I'd like to add. Those go in the roadmap. If I do change a recorded decision, it gets a note in CHANGELOG.md and an ADR.
 
 This is the v1.1 reconciliation pass: ten discrepancies between this document and the implemented system, discovered and recorded during Phase 1 in `docs/implementation-findings.md`, were folded back into the relevant sections above in one batched update, per the policy stated in the paragraph above. See `CHANGELOG.md` for a summary of what changed. One finding (CMDB-driven recovery verification) was already adequately covered by ADR-008, so no new ADR was needed for this pass.
+
+This is the Phase 2 reconciliation pass (2026-08-09): three Phase 2 discrepancies/clarifications (findings 11, 12, and 13 covering Alertmanager silence maintenance suppression, asynchronous SLA breach evaluation with `clock_timestamp()`, and decoupled report generation) were recorded in `docs/implementation-findings.md`, reconciled into project documentation, and formalized as ADRs 009, 010, and 011 alongside new Phase 2 operational runbooks.

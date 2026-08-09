@@ -8,6 +8,10 @@ reports/*.pdf
 !reports/INC-SAMPLE.pdf
 diagnostics/
 
+# Chaos experiment artifacts
+.chaos/
+health/index.html
+
 # Backups
 backups/
 
@@ -28,3 +32,7 @@ venv/
 # Editors
 .vscode/
 .idea/
+
+# Local Agent Config & Artifacts
+.agents/
+.superpowers/

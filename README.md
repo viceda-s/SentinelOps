@@ -10,26 +10,36 @@ The project was built to explore how production incident response systems coordi
 
 # Current Status
 
-**Phase 1 is complete and fully verified against real infrastructure.**
+**Phase 1 and Phase 2 are complete, with no regressions introduced by the Phase 2 documentation pass.**
 
 The complete autonomous incident pipeline has been implemented and validated:
 
 > detect → enrich → acknowledge → remediate → verify → resolve (or escalate) → audit
 
-Phase 1 includes:
+Phase 1 core infrastructure includes:
 
 * Prometheus, Alertmanager, and Grafana
 * CMDB-driven incident enrichment
 * PostgreSQL-backed incident management
 * Independent webhook ingestion and remediation services
 * Explicit incident state machine
-* Autonomous remediation playbooks
+* Autonomous remediation playbooks (`restart_service`, `collect_diagnostics`)
 * Service-specific recovery verification
 * Structured JSON logging
 * Bootstrap, teardown, and chaos tooling
 * CMDB validation
-* Operational runbooks
-* Architecture Decision Records (ADRs)
+* Operational runbooks and Architecture Decision Records (ADRs)
+
+**Phase 2** operational layer extends the platform with:
+
+* Maintenance windows and Alertmanager silence suppression (`automation/scripts/maintenance.sh`, `docker/maintenance-monitor/`)
+* Incident SLA tracking, breach calculations, and MTTR Prometheus metrics (`automation/response_engine/sla.py`, `metrics.py`)
+* Automated disk cleanup remediation playbook (`disk_cleanup` in `remediation.py`)
+* Dedicated report generator service (`docker/report-generator/`) producing live health dashboards (`/health/`) and formal PDF incident reports (`/reports/`)
+* Operator incident closure CLI with Root Cause Analysis (`automation/scripts/close_incident.sh`)
+* Automated PostgreSQL database & Grafana configuration backups with retention pruning (`automation/scripts/backup.sh`)
+* Operational runbooks (`maintenance-windows.md`, `incident-closure-and-reports.md`, `backup-and-disaster-recovery.md`, `disk-cleanup.md`)
+* Architecture Decision Records 009, 010, and 011
 
 Future phases focus on extending the platform rather than completing the core incident response workflow.
 
@@ -91,7 +101,7 @@ These principles are documented in the project's Architecture Decision Records
 * Prometheus metrics collection
 * Alertmanager alert routing
 * Grafana dashboards
-* Six production-style alert rules
+* Seven production-style alert rules, including `ResponseEngineDown` for the response engine's own self-monitoring
 
 ## Response Engine
 
@@ -109,6 +119,7 @@ Implemented Phase 1 playbooks:
 
 * `restart_service`
 * `collect_diagnostics`
+* `disk_cleanup`
 
 Recovery verification supports:
 
@@ -118,12 +129,36 @@ Recovery verification supports:
 
 ## Operational Tooling
 
-* `bootstrap.sh`
-* `teardown.sh`
-* `chaos.sh`
-* `validate_cmdb.py`
+* `bootstrap.sh` — Validates environment and starts the Docker Compose stack with post-start health checks.
+* `teardown.sh` — Stops the platform cleanly; `--purge` flag removes persistent data.
+* `backup.sh` — Archives Grafana dashboards and PostgreSQL database to `backups/sentinelops-<timestamp>.tar.gz`; retains the newest `BACKUP_RETENTION` archives (default: 7). Configurable via `BACKUP_DIR` and `BACKUP_RETENTION` environment variables. Restore with: `docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" < postgres.sql`
+* `healthcheck.sh` — One-shot status check of every component (containers, HTTP endpoints, database). Exits 0 if all pass, 1 if anything is down.
+* `chaos.sh` — Chaos testing for exercising the incident response pipeline.
+  - `stop <service>` — Stop a Compose service.
+  - `fill` — Allocate a bounded file to trigger `DiskPressure` alert.
+  - `reset` — Remove the disk filler.
+* `validate_cmdb.py` — Validates the CMDB configuration against alert rules and remediation playbooks.
+
+## Operational Visibility (Phase 2)
+
+* Prometheus `/metrics` endpoints on the worker and webhook handler
+* Live SLA breach detection (`sentinelops_sla_breaches_total`), evaluated continuously against each incident's CMDB-defined `response_minutes`/`resolution_minutes`, not just at state transitions
+* Self-monitoring: `ResponseEngineDown` alert rule and a worker heartbeat gauge, detecting a hung poll loop even when the process is still technically running
+* MTTR/MTTA histograms (`sentinelops_incident_resolution_seconds`, `sentinelops_incident_response_seconds`), observed directly in the state machine's `transition()`
+* Second Grafana dashboard ("SentinelOps — Response Engine"): MTTR, MTTA, queue depth, worker heartbeat age, open incidents by status, remediation success rate, SLA breaches over time — all calculated from real recorded incidents, not seeded data
+
+## Incident Reporting
+
+* Dedicated `report-generator` service
+* Static health page served by nginx
+* Automatic PDF incident reports generated when incidents are closed
+* Operator-driven incident closure through `close_incident.sh`
+* Unified incident timeline combining lifecycle events and remediation history
+* Conditional diagnostic evidence when `collect_diagnostics` was executed
+* Manual Root Cause Analysis (RCA) included in every completed report
 
 ---
+
 # Documentation
 
 The repository is intentionally split into focused documents. The README provides an overview of the project, while the documents below describe the architecture, design rationale, operational procedures, and engineering decisions in greater detail.
@@ -165,6 +200,8 @@ cp .env.example .env
 
 Adjust any values if required for your environment.
 
+The environment file also contains dedicated PostgreSQL credentials for the response engine and report generator. Optional tuning parameters such as the health page refresh interval and PDF scan interval have sensible built-in defaults and normally do not need to be configured.
+
 ## Validate the environment
 
 Before starting the platform, verify that all prerequisites and configuration are valid:
@@ -185,12 +222,30 @@ The bootstrap script validates the environment, starts the Docker Compose stack,
 
 Once the platform is running, the primary interfaces are:
 
-| Service      | URL                   |
-| ------------ | --------------------- |
-| Grafana      | http://localhost:3001 |
-| Prometheus   | http://localhost:9090 |
-| Alertmanager | http://localhost:9093 |
-| API          | http://localhost:5001 |
+| Service          | URL                             |
+| ---------------- | -------------------------------- |
+| Grafana          | http://localhost:3001            |
+| Prometheus       | http://localhost:9090            |
+| Alertmanager     | http://localhost:9093            |
+| API              | http://localhost:5001            |
+| Health page      | http://localhost:8081/health/    |
+| Incident reports | http://localhost:8081/reports/   |
+
+## Closing an incident
+
+Resolved incidents remain open for operator review until a Root Cause
+Analysis has been written.
+
+Launch the guided workflow with:
+
+```bash
+./automation/scripts/close_incident.sh INCIDENT_REFERENCE
+```
+
+The script opens your configured editor with an RCA template. After saving,
+the incident transitions to `CLOSED`. The `report-generator` service picks up
+newly closed incidents automatically and publishes a PDF report under
+`/reports/` shortly after.
 
 ## Shut down the environment
 
@@ -237,11 +292,21 @@ The chaos tool operates only on services defined in the project's Docker Compose
 ```text
 SentinelOps/
 ├── automation/
-│   ├── response_engine/     # Incident response engine
-│   └── scripts/             # Bootstrap, teardown, chaos and validation tools
+│   ├── response_engine/     # Webhook handler, worker, remediation logic
+│   ├── report_generator/    # Health page, PDF renderer, templates
+│   └── scripts/             # Operational tooling
 ├── cmdb/                    # Service configuration
 ├── diagnostics/             # Collected diagnostics
 ├── docker/                  # Container definitions and configuration
+│   ├── api/
+│   ├── report-generator/
+│   ├── webhook-handler/
+│   ├── worker/
+│   ├── nginx/
+│   ├── postgres/
+│   ├── prometheus/
+│   ├── grafana/
+│   └── alertmanager/
 ├── docs/
 │   ├── adr/                 # Architecture Decision Records
 │   ├── runbooks/            # Operational runbooks
@@ -269,19 +334,17 @@ Additional Phase 1 simplifications include:
 * Local secrets stored in `.env`, which is excluded from version control.
 * Local-only chaos tooling designed to operate exclusively on this project's Docker Compose stack.
 
+Phase 2 adds two more unauthenticated nginx routes, `/health/` and `/reports/`. `/reports/` is the more sensitive of the two: incident reports include collected diagnostics (container logs and stats) and the operator-written Root Cause Analysis, and references are sequential (`INC-2026-001.pdf`, `INC-2026-002.pdf`, ...) and therefore easy to enumerate. As with the rest of Phase 1's unauthenticated surface, this is an accepted lab-only trade-off, not an oversight — a production deployment would put both routes behind authentication.
+
+The response engine and report generator connect to PostgreSQL as dedicated least-privilege roles (`response_engine`, `report_generator`) rather than the shared superuser credential; see `docker/postgres/init/007_create_roles.sh` for the exact grants.
+
 These trade-offs are appropriate for a learning environment but would be replaced in production with least-privilege credentials, authenticated monitoring endpoints, and a restricted interface to the container runtime.
 
 ---
 
 # Future Work
 
-Phase 1 establishes the complete autonomous incident response loop. Future phases extend the platform with additional operational capabilities rather than changing its core architecture.
-
-### Incident Management
-
-* Maintenance windows
-* SLA tracking
-* Incident reporting
+Phase 1 and Phase 2 establish the complete autonomous incident response and operational layer. Future phases extend the platform with additional operational capabilities rather than changing its core architecture.
 
 ### Automation
 

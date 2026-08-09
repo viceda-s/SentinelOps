@@ -1,20 +1,32 @@
+"""
+Incident state machine implementation for SentinelOps.
+
+Enforces valid lifecycle state transitions, updates database timestamp columns,
+appends audit records to `incident_events`, and records Prometheus duration metrics.
+"""
+
 import json
 import logging
 from datetime import datetime, timezone
 
+from psycopg2.extensions import connection
+
+from .events import get_next_sequence
+from .metrics import (
+    INCIDENT_RESOLUTION_SECONDS,
+    INCIDENT_RESPONSE_SECONDS,
+)
+
 logger = logging.getLogger(__name__)
 
-# NEW -> ESCALATED (in addition to DESIGN.md v1.0's NEW -> ACKNOWLEDGED | SUPPRESSED_MAINTENANCE) is a deliberate deviation from the frozen design, not an oversight. An unknown service (not in the CMDB) has to escalate straight out of enrichment, before any worker has claimed it -- see implementation-findings.md. Faking an ACKNOWLEDGED event to satisfy the original table would misrepresent the audit trail, since ACKNOWLEDGED specifically means "claimed by a worker."
+# NEW -> ESCALATED allows unknown services (not in CMDB) to escalate during enrichment before worker claim.
 
-#
-# SUPPRESSED_MAINTENANCE is reserved for the Phase 2 maintenance-window feature.
-# No Phase 1 code path currently enters this state.
-#
 ALLOWED_TRANSITIONS = {
     "NEW": {"ACKNOWLEDGED", "SUPPRESSED_MAINTENANCE", "ESCALATED"},
     "ACKNOWLEDGED": {"IN_PROGRESS", "ESCALATED"},
     "ESCALATED": {"IN_PROGRESS", "RESOLVED"},
     "IN_PROGRESS": {"RESOLVED", "ESCALATED"},
+    "SUPPRESSED_MAINTENANCE": {"RESOLVED"},
     "RESOLVED": {"CLOSED"},
 }
 
@@ -25,16 +37,27 @@ STATUS_TIMESTAMPS = {
 }
 
 
-def transition(conn, incident, to_status, actor, message):
-    """
-    Perform a validated incident state transition.
+def transition(
+    conn: connection, incident: dict, to_status: str, actor: str, message: str
+) -> dict:
+    """Perform a validated incident state transition.
 
-    The caller owns the transaction.
-    This function MUST NOT call commit() or rollback().
+    Args:
+        conn: Active PostgreSQL connection (caller manages transactions).
+            Must be opened with cursor_factory=psycopg2.extras.RealDictCursor.
+        incident: Incident record dictionary.
+        to_status: Target status name string.
+        actor: Identity of actor triggering transition (e.g. 'worker', 'operator').
+        message: Audit log description for the transition.
 
-    conn must be opened with cursor_factory=psycopg2.extras.RealDictCursor —
-    incident is expected to support dict-style access (incident["status"]),
-    and this function's own queries rely on the same convention.
+    Returns:
+        Updated in-memory incident dictionary.
+
+    Raises:
+        ValueError: If requested state transition is not allowed.
+
+    Notes:
+        The caller owns the transaction. This function MUST NOT call commit() or rollback().
     """
 
     current_status = incident["status"]
@@ -54,10 +77,7 @@ def transition(conn, incident, to_status, actor, message):
         raise ValueError(f"Invalid transition: {current_status} -> {to_status}")
 
     with conn.cursor() as cur:
-        #
-        # Update incident
-        #
-
+        # Update incident.
         timestamp_column = STATUS_TIMESTAMPS.get(to_status)
 
         if timestamp_column:
@@ -87,25 +107,10 @@ def transition(conn, incident, to_status, actor, message):
                 ),
             )
 
-        #
-        # Next sequence number
-        #
+        # Allocate next audit sequence number.
+        sequence = get_next_sequence(conn, incident["id"])
 
-        cur.execute(
-            """
-            SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
-            FROM incident_events
-            WHERE incident_id = %s
-            """,
-            (incident["id"],),
-        )
-
-        sequence = cur.fetchone()["next_sequence"]
-
-        #
-        # Insert audit event
-        #
-
+        # Insert audit event.
         cur.execute(
             """
             INSERT INTO incident_events (
@@ -136,13 +141,22 @@ def transition(conn, incident, to_status, actor, message):
             ),
         )
 
-    #
-    # Keep the in-memory object in sync
-    #
+    # Keep in-memory incident dictionary in sync.
+
+    now = datetime.now(timezone.utc)
 
     incident["status"] = to_status
 
     if to_status in STATUS_TIMESTAMPS:
-        incident[STATUS_TIMESTAMPS[to_status]] = datetime.now(timezone.utc)
+        incident[STATUS_TIMESTAMPS[to_status]] = now
+
+    if to_status == "ACKNOWLEDGED":
+        INCIDENT_RESPONSE_SECONDS.observe(
+            (now - incident["detected_at"]).total_seconds()
+        )
+    elif to_status == "RESOLVED":
+        INCIDENT_RESOLUTION_SECONDS.observe(
+            (now - incident["detected_at"]).total_seconds()
+        )
 
     return incident

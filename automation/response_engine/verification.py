@@ -1,25 +1,38 @@
+"""
+Recovery verification module for SentinelOps.
+
+Executes CMDB-driven verification strategies (`http`, `docker-health`, `running`) to determine
+whether a container service has recovered following remediation playbook execution.
+"""
+
 import logging
 
 import requests
 
+from docker import DockerClient
+
 logger = logging.getLogger(__name__)
 
 
-def verify_recovery(client, container_name: str, verification: dict) -> bool:
+def verify_recovery(
+    client: DockerClient, container_name: str, verification: dict
+) -> bool:
     """
-    Perform a single recovery verification
+    Perform a single recovery verification check according to CMDB policy.
+
+    Args:
+        client: Docker SDK client instance.
+        container_name: Name of target container to verify.
+        verification: CMDB dictionary specifying `type` ('http', 'docker-health', 'running')
+            and parameters (such as `url` for HTTP checks).
 
     Returns:
-        True if recovery succeeded.
-
-        False if the service is reachable but unhealthy (including HTTP/network failures).
+        bool: True if service recovery is verified; False if verification failed or is unreachable.
 
     Raises:
-        docker.errors.NotFound:
-            The target container could not be found at the time of verification.
-
-        docker.errors.APIError:
-            Docker verification failures (for example, container lookup failures) are propagated to the caller.
+        docker.errors.NotFound: If the container does not exist.
+        docker.errors.APIError: If communication with Docker daemon fails.
+        ValueError: If an unrecognized verification type is provided.
     """
 
     verification_type = verification["type"]

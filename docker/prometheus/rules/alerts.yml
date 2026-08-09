@@ -60,3 +60,21 @@ groups:
         annotations:
           summary: "{{ $labels.job }} is down"
           description: "{{ $labels.job }} has been unreachable for 1 minute"
+
+      - alert: ResponseEngineDown
+        expr: time() - sentinelops_worker_heartbeat_timestamp{job="worker"} > 30
+        labels:
+          severity: critical
+          playbook: none
+        annotations:
+          summary: "Response engine worker heartbeat stale"
+          description: "The response engine worker heartbeat has not advanced for more than 30 seconds."
+
+      - alert: MaintenanceMonitorDown
+        expr: time() - sentinelops_maintenance_heartbeat_timestamp{job="maintenance-monitor"} > 30
+        labels:
+          severity: critical
+          playbook: restart_service
+        annotations:
+          summary: "Maintenance monitor heartbeat stale"
+          description: "The maintenance monitor heartbeat has not advanced for more than 30 seconds."

@@ -14,9 +14,12 @@ from pathlib import Path
 
 import yaml
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from automation.response_engine.playbooks import IMPLEMENTED_PLAYBOOKS
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 CMDB_PATH = REPO_ROOT / "cmdb" / "services.yaml"
 COMPOSE_PATH = REPO_ROOT / "docker-compose.yml"
 
@@ -33,6 +36,8 @@ REQUIRED_SLA_KEYS = ("response_minutes", "resolution_minutes")
 
 VALID_CRITICALITY = {"high", "medium", "low"}
 
+VALID_PLAYBOOKS = IMPLEMENTED_PLAYBOOKS | {"none"}
+
 VALID_VERIFICATION_TYPES = {
     "http",
     "docker-health",
@@ -47,7 +52,7 @@ class CmdbError(Exception):
 
 
 class DuplicateKeyError(CmdbError):
-    pass
+    """The CMDB contains a duplicate mapping key."""
 
 
 class StrictLoader(yaml.SafeLoader):
@@ -60,6 +65,9 @@ class StrictLoader(yaml.SafeLoader):
 
 
 def no_duplicates(loader: yaml.Loader, node: yaml.Node, deep: bool = False) -> dict:
+    """
+    YAML loader constructor hook that enforces unique mapping keys.
+    """
     seen = set()
     for key_node, _ in node.value:
         key = loader.construct_object(key_node, deep=deep)
@@ -130,6 +138,15 @@ def load_scrape_jobs() -> set[str] | None:
 
 
 def validate(cmdb: dict) -> list[str]:
+    """
+    Validate CMDB entries against project schema, Docker Compose, and Prometheus scrape jobs.
+
+    Args:
+        cmdb: Loaded CMDB dictionary structure.
+
+    Returns:
+        list[str]: List of validation error message strings (empty if CMDB is valid).
+    """
     errors: list[str] = []
     services = cmdb["services"] or {}
     scrape_jobs = load_scrape_jobs()
@@ -184,7 +201,7 @@ def validate(cmdb: dict) -> list[str]:
         playbooks = svc.get("playbooks") or {}
         if isinstance(playbooks, dict):
             for alert, playbook in playbooks.items():
-                if playbook not in IMPLEMENTED_PLAYBOOKS:
+                if playbook not in VALID_PLAYBOOKS:
                     errors.append(
                         f"[{name}] alert '{alert}' maps to unknown playbook '{playbook}'"
                     )
@@ -217,6 +234,9 @@ def validate(cmdb: dict) -> list[str]:
 
 
 def main() -> None:
+    """
+    Execute CMDB validation CLI entry point.
+    """
     try:
         cmdb = load_cmdb()
     except CmdbError as e:
