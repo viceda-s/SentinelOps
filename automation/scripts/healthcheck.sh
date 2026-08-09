@@ -141,6 +141,75 @@ check_self_http() {
     return 0
 }
 
+# Probe whether Prometheus can actually scrape a target, via its own
+# recorded up{} metric -- not whether the target responds to itself over
+# loopback. This is the correct check for node-exporter/cadvisor: the
+# failure mode that matters is "Prometheus can't scrape this," since that's
+# what determines whether DiskPressure can evaluate at all, and a loopback
+# probe cannot observe that (confirmed live: a broken Compose DNS alias
+# left node-exporter answering localhost while Prometheus's own scrape
+# target for it was down, and the loopback probe never caught it).
+#
+# Scoped to job AND instance, not just job, so a query can't accidentally
+# pass because some other node-exporter target elsewhere is healthy.
+#
+# Bounded by a freshness check on the sample's own timestamp, same
+# principle as disk_cleanup's Prometheus re-check in remediation.py: an up
+# value that Prometheus stopped updating (e.g. Prometheus itself wedged)
+# must not be trusted just because it happens to read 1.
+check_prometheus_up() {
+    local job="$1"
+    local instance="$2"
+
+    local query="up{job=\"${job}\",instance=\"${instance}\"}"
+    local encoded_query
+    encoded_query="$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$query")"
+    local url="${PROMETHEUS_URL:-http://localhost:9090}/api/v1/query?query=${encoded_query}"
+
+    local response
+    if ! response="$(curl -fsS --max-time 5 "$url" 2>&1)"; then
+        echo "Prometheus query failed for up{job=\"${job}\",instance=\"${instance}\"}"
+        return 1
+    fi
+
+    python3 - "$response" "$job" "$instance" <<'PY'
+import json
+import sys
+import time
+
+response, job, instance = sys.argv[1], sys.argv[2], sys.argv[3]
+
+MAX_SAMPLE_AGE_SECONDS = 30
+
+try:
+    body = json.loads(response)
+except json.JSONDecodeError:
+    print(f"malformed Prometheus response for up{{job={job!r}, instance={instance!r}}}")
+    sys.exit(1)
+
+if body.get("status") != "success":
+    print(f"Prometheus returned non-success status for up{{job={job!r}, instance={instance!r}}}")
+    sys.exit(1)
+
+result = body.get("data", {}).get("result", [])
+
+if len(result) != 1:
+    print(f"expected exactly one series for up{{job={job!r}, instance={instance!r}}}, got {len(result)}")
+    sys.exit(1)
+
+sample_timestamp, raw_value = result[0]["value"]
+sample_age = time.time() - float(sample_timestamp)
+
+if sample_age > MAX_SAMPLE_AGE_SECONDS:
+    print(f"up{{job={job!r}, instance={instance!r}}} sample is stale: {sample_age:.1f}s old")
+    sys.exit(1)
+
+if raw_value != "1":
+    print(f"Prometheus cannot scrape job={job!r} instance={instance!r} (up={raw_value})")
+    sys.exit(1)
+PY
+}
+
 check_component() {
     local component="$1"
     local probe_type="${2:-}"
@@ -167,6 +236,12 @@ check_component() {
             ;;
         self-http)
             if ! reason="$(check_self_http "$component" "$probe_arg")"; then
+                report "$component" FAIL "$reason"
+                return
+            fi
+            ;;
+        prometheus-up)
+            if ! reason="$(check_prometheus_up "$component" "$probe_arg")"; then
                 report "$component" FAIL "$reason"
                 return
             fi
@@ -200,8 +275,8 @@ check_component grafana             http     "http://localhost:3001/api/health"
 check_component worker              metrics  "http://worker:8000/metrics"
 check_component webhook-handler     metrics  "http://webhook-handler:8000/metrics"
 check_component maintenance-monitor metrics  "http://maintenance-monitor:8000/metrics"
-check_component node-exporter       self-http "http://localhost:9100/metrics"
-check_component cadvisor            self-http "http://localhost:8080/healthz"
+check_component node-exporter       prometheus-up "node-exporter:9100"
+check_component cadvisor            prometheus-up "cadvisor:8080"
 #
 # report-generator has no functional probe: no HEALTHCHECK, no published
 # port, no HTTP server -- it's a background polling loop with no
