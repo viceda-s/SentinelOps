@@ -15,9 +15,7 @@ from psycopg2 import OperationalError
 
 app = Flask(__name__)
 
-#
-# Prometheus metrics
-#
+# Prometheus metrics.
 
 API_REQUESTS_TOTAL = Counter(
     "api_requests_total",
@@ -39,10 +37,9 @@ API_REQUEST_LATENCY_SECONDS = Histogram(
 
 
 def get_db_connection():
-    """
-    Create a new PostgreSQL connection using environment variables.
+    """Create a new PostgreSQL connection using environment variables.
 
-    Connection is created lazily per request so the application can start even if PostgreSQL is not yet accepting connections.
+    Connection is created lazily per request so the app can start before DB is ready.
     """
     return psycopg2.connect(
         host=os.getenv("POSTGRES_HOST", "postgres"),
@@ -54,9 +51,7 @@ def get_db_connection():
 
 
 def record_metrics(endpoint: str, status_code: int, start_time: float):
-    """
-    Record latency, request count and server errors.
-    """
+    """Record latency, request count and server errors."""
     elapsed = time.perf_counter() - start_time
 
     API_REQUEST_LATENCY_SECONDS.labels(endpoint=endpoint).observe(elapsed)
@@ -73,9 +68,7 @@ def record_metrics(endpoint: str, status_code: int, start_time: float):
 
 @app.route("/health")
 def health():
-    """
-    Expose health probe endpoint for the API service and its PostgreSQL connection.
-    """
+    """Expose health probe endpoint for the API service and its PostgreSQL connection."""
     start = time.perf_counter()
 
     try:
@@ -96,8 +89,7 @@ def health():
         )
 
     except OperationalError as exc:
-        # Postgres unreachable, refusing connections, auth failure, etc.
-        # This is the failure mode chaos.sh dependency is meant to trigger.
+        # Postgres unreachable; failure mode triggered by chaos dependency testing.
         status = 503
         response = jsonify(
             {

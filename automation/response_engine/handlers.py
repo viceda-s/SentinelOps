@@ -219,9 +219,7 @@ def ingest_alert(
 
         incident = cur.fetchone()
 
-        #
-        # Best-effort telemetry: Prometheus metrics are not transactionally coupled to PostgreSQL, so this may diverge if the transaction later rolls back.
-        #
+        # Best-effort telemetry: metric increments are not transactionally coupled to PostgreSQL.
 
         INCIDENTS_CREATED_TOTAL.labels(
             service=incident["service"],
@@ -273,9 +271,7 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
         - deduplicate duplicate Alertmanager notifications
     """
 
-    #
-    # The webhook handler only processes firing alerts; non-firing notifications are ignored.
-    #
+    # Ignore non-firing alert notifications.
 
     if alert.get("status") != "firing":
         logger.info(
@@ -293,10 +289,7 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
     service = labels["job"]
     fingerprint = alert["fingerprint"]
 
-    #
-    # Alertmanager carries a playbook too.
-    # The CMDB is authoritative; mismatches are logged.
-    #
+    # Log any mismatch between Alertmanager label and authoritative CMDB playbook.
     (
         _owner,
         _tier,
@@ -332,12 +325,7 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
             source="webhook_handler",
         )
 
-        #
-        # Webhook-specific lifecycle policy.
-        #
-        # Incidents that cannot be remediated automatically
-        # escalate immediately after creation.
-        #
+        # Escalate immediately if service is unknown or has no automated playbook.
 
         if not known_service:
             transition(
@@ -359,13 +347,7 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
 
         conn.commit()
 
-    #
-    # Duplicate Alertmanager notifications are expected.
-    #
-    # The active-incident unique constraint guarantees only one
-    # actionable incident exists per fingerprint. Later notifications
-    # are recorded as NOTE events on the existing incident.
-    #
+    # Duplicate notifications are recorded as NOTE events on the existing active incident.
 
     except psycopg2.errors.UniqueViolation:
         conn.rollback()
@@ -446,12 +428,9 @@ def resolve_cmdb_entry(cmdb: dict, service: str, alert_name: str):
 
 
 def generate_reference(conn) -> str:
-    """
-    Allocate a unique incident reference
+    """Allocate a unique incident reference sequential per UTC year.
 
-    References are sequential per UTC calendar year and are allocated atomically using PostgreSQL row-level locking.
-
-    The counter update participates in the caller's transaction, so a rollback also rolls back the allocated reference number. This also means the current year's counter row stays locked for the duration of the caller's transaction -- concurrent handle_alert() calls serialize on this row rather than allocating independently.
+    Uses PostgreSQL row-level locking. The counter update participates in the caller's transaction.
     """
 
     year = datetime.now(timezone.utc).year

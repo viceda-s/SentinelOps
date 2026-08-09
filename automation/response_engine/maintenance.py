@@ -58,9 +58,7 @@ def fetch_suppressed_alerts(alertmanager_url: str) -> list[dict]:
 
     alerts = response.json()
 
-    #
-    # Parse timestamps before sorting. Alertmanager uses RFC3339Nano and may omit trailing zero fractional digits, so lexicographic ordering can differ from chronological ordering (for example, "...:00Z" vs "...:00.5Z").
-    #
+    # Parse timestamps before sorting to ensure chronological ordering.
 
     alerts.sort(
         key=lambda alert: datetime.fromisoformat(
@@ -199,12 +197,7 @@ def process_suppressed_alert(conn, alert: dict, cmdb: dict) -> dict | None:
         actionable_incident = find_actionable_incident(conn, fingerprint)
 
         if actionable_incident is not None:
-            #
-            # Each Alertmanager silence represents a separate maintenance action, so reconcile each silence independently. The partial unique index prevents repeated polls from recording the same silence more than once on this incident.
-            #
-            # If the silence expired before this poll, silencedBy may be empty.
-            # There is then no stable identity to deduplicate, so record nothing.
-            #
+            # Reconcile each silence independently. Partial unique index prevents duplicate notes.
             for silence_id in alert["status"]["silencedBy"]:
                 with conn.cursor() as cur:
                     cur.execute("SAVEPOINT maintenance_note")
@@ -223,9 +216,7 @@ def process_suppressed_alert(conn, alert: dict, cmdb: dict) -> dict | None:
                         )
 
                     except psycopg2.errors.UniqueViolation as exc:
-                        #
-                        # Only the maintenance-silence index means this NOTE was already recorded. Other uniqueness violations, including a concurrent sequence collision, must propagate to the outer transaction handler.
-                        #
+                        # Ignore unique violation only for maintenance-silence index; re-raise others.
                         if (
                             exc.diag.constraint_name
                             != "incident_events_maintenance_silence_idx"
@@ -320,9 +311,7 @@ def main() -> None:
                 len(alerts),
             )
 
-            #
-            # The heartbeat only advances after a successful poll iteration completes.
-            #
+            # Heartbeat advances only after a successful poll iteration completes.
 
             MAINTENANCE_HEARTBEAT_TIMESTAMP.set_to_current_time()
 

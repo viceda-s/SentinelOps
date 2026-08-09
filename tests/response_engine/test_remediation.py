@@ -784,3 +784,165 @@ def test_prune_diagnostics_tolerates_missing_directory(tmp_path):
 
     with patch.object(remediation, "DIAGNOSTICS_DIR", tmp_path / "nope"):
         assert remediation.prune_diagnostics() == 0
+
+
+def test_prune_docker_resources_calls_prune_surfaces():
+    """
+    Verify that _prune_docker_resources calls containers, images, and build cache prunes.
+    """
+    from unittest.mock import MagicMock
+
+    from automation.response_engine.remediation import _prune_docker_resources
+
+    client = MagicMock()
+    _prune_docker_resources(client)
+
+    client.containers.prune.assert_called_once()
+    client.images.prune.assert_called_once_with(filters={"dangling": True})
+    client.api.prune_builds.assert_called_once()
+    client.volumes.prune.assert_not_called()
+
+
+def test_await_disk_recovery_success():
+    """
+    Verify that await_disk_recovery returns (20.0, None) when disk recovers above threshold.
+    """
+    from automation.response_engine.remediation import await_disk_recovery
+
+    with (
+        patch(
+            "automation.response_engine.remediation.get_disk_free_percent",
+            return_value=20.0,
+        ),
+        patch("time.sleep"),
+    ):
+        pct, err = await_disk_recovery(
+            "node-1", "/", cleanup_completed_at=100.0, timeout=20.0
+        )
+
+    assert pct == 20.0
+    assert err is None
+
+
+def test_await_disk_recovery_forwards_not_before():
+    """
+    Verify that await_disk_recovery explicitly passes cleanup_completed_at as not_before to get_disk_free_percent.
+    """
+    from automation.response_engine.remediation import await_disk_recovery
+
+    cleanup_ts = 1723200000.5
+    with (
+        patch(
+            "automation.response_engine.remediation.get_disk_free_percent",
+            return_value=20.0,
+        ) as mock_get,
+        patch("time.sleep"),
+    ):
+        await_disk_recovery(
+            "node-1", "/", cleanup_completed_at=cleanup_ts, timeout=20.0
+        )
+
+    mock_get.assert_called_once_with("node-1", "/", timeout=5.0, not_before=cleanup_ts)
+
+
+def test_await_disk_recovery_below_threshold():
+    """
+    Verify that await_disk_recovery returns valid measurement even if below threshold when deadline expires.
+    """
+    from automation.response_engine.remediation import await_disk_recovery
+
+    with (
+        patch(
+            "automation.response_engine.remediation.get_disk_free_percent",
+            return_value=10.0,
+        ),
+        patch("time.monotonic", side_effect=[100.0, 105.0, 125.0]),
+        patch("time.sleep"),
+    ):
+        pct, err = await_disk_recovery(
+            "node-1", "/", cleanup_completed_at=100.0, timeout=20.0
+        )
+
+    assert pct == 10.0
+    assert err is None
+
+
+def test_await_disk_recovery_timeout_unavailable():
+    """
+    Verify that await_disk_recovery returns (None, error) when measurement is unavailable.
+    """
+    from automation.response_engine.remediation import (
+        DiskMeasurementUnavailable,
+        await_disk_recovery,
+    )
+
+    with (
+        patch(
+            "automation.response_engine.remediation.get_disk_free_percent",
+            side_effect=DiskMeasurementUnavailable("Disk query failed"),
+        ),
+        patch("time.monotonic", side_effect=[100.0, 101.0, 125.0]),
+        patch("time.sleep"),
+    ):
+        pct, err = await_disk_recovery(
+            "node-1", "/", cleanup_completed_at=100.0, timeout=20.0
+        )
+
+    assert pct is None
+    assert err is not None
+    assert "Disk query failed" in err
+
+
+def test_await_disk_recovery_sleep_bounded():
+    """
+    Verify that loop sleep uses min(interval, remaining).
+    """
+    import pytest
+
+    from automation.response_engine.remediation import (
+        DiskMeasurementUnavailable,
+        await_disk_recovery,
+    )
+
+    with (
+        patch(
+            "automation.response_engine.remediation.get_disk_free_percent",
+            side_effect=DiskMeasurementUnavailable("Disk low"),
+        ),
+        patch("time.monotonic", side_effect=[100.0, 101.0, 119.8, 120.0]),
+        patch("time.sleep") as mock_sleep,
+    ):
+        await_disk_recovery(
+            "node-1",
+            "/",
+            cleanup_completed_at=100.0,
+            timeout=20.0,
+            interval=5.0,
+        )
+
+    # 119.8 -> remaining 0.2s, so sleep must be approx 0.2, not 5.0
+    actual_sleep = mock_sleep.call_args[0][0]
+    assert actual_sleep == pytest.approx(0.2)
+
+
+def test_await_disk_recovery_query_timeout_bounded():
+    """
+    Verify that get_disk_free_percent receives min(5.0, remaining) as timeout when near deadline.
+    """
+    import pytest
+
+    from automation.response_engine.remediation import await_disk_recovery
+
+    with (
+        patch(
+            "automation.response_engine.remediation.get_disk_free_percent",
+            return_value=20.0,
+        ) as mock_get,
+        patch("time.monotonic", side_effect=[100.0, 119.8, 120.0]),
+        patch("time.sleep"),
+    ):
+        await_disk_recovery("node-1", "/", cleanup_completed_at=100.0, timeout=20.0)
+
+    # 119.8 -> remaining 0.2s, so timeout must be approx 0.2
+    actual_timeout = mock_get.call_args.kwargs["timeout"]
+    assert actual_timeout == pytest.approx(0.2)

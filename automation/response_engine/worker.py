@@ -152,13 +152,7 @@ def main() -> None:
 
             conn.commit()
 
-        #
-        # Infrastructure failures.
-        #
-        # restart_service()/collect_diagnostics() already recorded
-        # the failed remediation attempt.
-        #
-
+        # Infrastructure failures: attempt start/finish already recorded by playbook.
         except docker.errors.APIError as exc:
             if incident is not None and incident["status"] not in (
                 "ESCALATED",
@@ -186,12 +180,7 @@ def main() -> None:
 
             time.sleep(POLL_INTERVAL_SECONDS)
 
-        #
-        # Unexpected programming/configuration errors.
-        #
-        # Roll back so the incident returns to NEW.
-        #
-
+        # Unexpected errors: roll back so incident returns to NEW.
         except Exception:
             conn.rollback()
 

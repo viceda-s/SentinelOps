@@ -16,7 +16,7 @@ from .metrics import (
 
 logger = logging.getLogger(__name__)
 
-# NEW -> ESCALATED (in addition to DESIGN.md v1.0's NEW -> ACKNOWLEDGED | SUPPRESSED_MAINTENANCE) is a deliberate deviation from the frozen design, not an oversight. An unknown service (not in the CMDB) has to escalate straight out of enrichment, before any worker has claimed it -- see implementation-findings.md. Faking an ACKNOWLEDGED event to satisfy the original table would misrepresent the audit trail, since ACKNOWLEDGED specifically means "claimed by a worker."
+# NEW -> ESCALATED allows unknown services (not in CMDB) to escalate during enrichment before worker claim.
 
 ALLOWED_TRANSITIONS = {
     "NEW": {"ACKNOWLEDGED", "SUPPRESSED_MAINTENANCE", "ESCALATED"},
@@ -35,8 +35,7 @@ STATUS_TIMESTAMPS = {
 
 
 def transition(conn, incident: dict, to_status: str, actor: str, message: str) -> dict:
-    """
-    Perform a validated incident state transition.
+    """Perform a validated incident state transition.
 
     Args:
         conn: Active PostgreSQL connection (caller manages transactions).
@@ -50,7 +49,7 @@ def transition(conn, incident: dict, to_status: str, actor: str, message: str) -
         Updated in-memory incident dictionary.
 
     Raises:
-        ValueError: If the requested state transition is not allowed by ALLOWED_TRANSITIONS.
+        ValueError: If requested state transition is not allowed.
 
     Notes:
         The caller owns the transaction. This function MUST NOT call commit() or rollback().
@@ -73,10 +72,7 @@ def transition(conn, incident: dict, to_status: str, actor: str, message: str) -
         raise ValueError(f"Invalid transition: {current_status} -> {to_status}")
 
     with conn.cursor() as cur:
-        #
-        # Update incident
-        #
-
+        # Update incident.
         timestamp_column = STATUS_TIMESTAMPS.get(to_status)
 
         if timestamp_column:
@@ -106,10 +102,7 @@ def transition(conn, incident: dict, to_status: str, actor: str, message: str) -
                 ),
             )
 
-        #
-        # Next sequence number
-        #
-
+        # Allocate next audit sequence number.
         cur.execute(
             """
             SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
@@ -121,10 +114,7 @@ def transition(conn, incident: dict, to_status: str, actor: str, message: str) -
 
         sequence = cur.fetchone()["next_sequence"]
 
-        #
-        # Insert audit event
-        #
-
+        # Insert audit event.
         cur.execute(
             """
             INSERT INTO incident_events (
@@ -155,9 +145,7 @@ def transition(conn, incident: dict, to_status: str, actor: str, message: str) -
             ),
         )
 
-    #
-    # Keep the in-memory object in sync
-    #
+    # Keep in-memory incident dictionary in sync.
 
     now = datetime.now(timezone.utc)
 

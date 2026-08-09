@@ -49,10 +49,9 @@ def load_cmdb() -> dict:
 
 
 def refresh_health_page(conn, cmdb: dict) -> None:
-    """
-    Render and atomically publish the health page.
+    """Render and atomically publish the health page.
 
-    HTML is written to a temporary file, flushed, fsynced, and atomically renamed so readers never observe a partially-written page.
+    HTML is written to a temporary file, flushed, fsynced, and atomically renamed.
     """
 
     HEALTH_DIR.mkdir(parents=True, exist_ok=True)
@@ -71,10 +70,9 @@ def refresh_health_page(conn, cmdb: dict) -> None:
 
 
 def generate_pending_reports(conn) -> None:
-    """
-    Generate PDF reports for CLOSED incidents that do not yet have one.
+    """Generate PDF reports for CLOSED incidents lacking one.
 
-    Each report is commited independently so one rendering failure does not roll back reports generated earlier in the same scan.
+    Each report is committed independently so a single rendering failure does not affect others.
     """
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)

@@ -30,58 +30,34 @@ RESTART_COOLDOWN = 5
 MAX_RESTART_ATTEMPTS = 2
 DIAGNOSTICS_DIR = Path("/app/diagnostics")
 
-#
 # disk_cleanup configuration.
 #
-# The recovery re-check queries Prometheus directly, scoped to the exact
-# job/instance/mountpoint the firing DiskPressure alert carries, rather than
-# reading a filesystem path inside the worker container. An earlier design
-# used a read-only /:/hostfs:ro bind mount and shutil.disk_usage(): a
-# deployed review found that on Docker Desktop /hostfs resolves to the
-# worker's own bind-mount overlay (verified at 0.83GB total, 99.94% free --
-# essentially incapable of ever reading below the 15% threshold) rather than
-# the real host disk, causing disk_cleanup to mark genuinely full disks
-# RESOLVED. The mount was also a credential-disclosure risk disproportionate
-# to the feature: it let the worker read host SSH keys and .env secrets to
-# support one shutil.disk_usage() call. See the "Re-check" section of
-# .superpowers/specs/2026-08-08-operational-tooling-design.md for the full
-# writeup, including why a fixed path can't be trusted even on native Linux
-# hosts with multiple mounted filesystems.
-#
-# This is a deliberate, narrow exception to "the response engine never calls
-# Prometheus": one read-only query, using labels the incident already
-# carries (Alertmanager attaches instance/mountpoint automatically; the
-# webhook handler already persists the complete raw label set verbatim into
-# incidents.labels), inside disk_cleanup's post-cleanup verification only.
-#
+# Recovery is verified through Prometheus using the incident's instance and
+# mountpoint labels. Do not inspect the host filesystem from the worker:
+# the container filesystem is not a reliable representation of host disk
+# usage, and host mounts expose unnecessary credentials/secrets.
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
 
-# Matches the DiskPressure expression in docker/prometheus/rules/alerts.yml
-# rather than inventing a second recovery threshold.
+# Must match the DiskPressure alert's configured free-space threshold.
 DISK_PRESSURE_FREE_PERCENT = float(os.environ.get("DISK_PRESSURE_FREE_PERCENT", "15"))
 
-# Diagnostics artifacts accumulate at a rate driven by incident volume, so
-# retention is age-based rather than count-based.
+# Diagnostics artifacts accumulate with incident volume, so retention is
+# age-based rather than count-based.
 DIAGNOSTICS_RETENTION_DAYS = int(os.environ.get("DIAGNOSTICS_RETENTION_DAYS", "14"))
 
 
 def record_attempt_start(conn, incident: dict, playbook: str) -> int:
-    """
-    Create a remediation_attempts row for a new remediation attempt.
-
+    """Create a remediation_attempts row for a new remediation attempt.
 
     Returns:
         The allocated attempt_number.
 
     The caller owns the transaction.
-    This function MUST NOT call commit() or rollback()
+    This function MUST NOT call commit() or rollback().
     """
 
     with conn.cursor() as cur:
-        #
-        # Allocate the next attempt number for this incident
-        #
-
+        # Allocate the next attempt number for this incident.
         cur.execute(
             """
             SELECT COALESCE(MAX(attempt_number), 0) + 1
@@ -94,9 +70,7 @@ def record_attempt_start(conn, incident: dict, playbook: str) -> int:
 
         attempt_number = cur.fetchone()["next_attempt"]
 
-        #
-        # Record the start of the attempt
-        #
+        # Record the start of the attempt.
 
         cur.execute(
             """
@@ -164,10 +138,7 @@ def record_attempt_finish(
             ),
         )
 
-        #
-        # Defensive check: the caller should only finish an attempt that
-        # actually exists.
-        #
+        # Defensive check: caller should only finish an attempt that exists.
 
         if cur.rowcount != 1:
             raise RuntimeError(
@@ -181,11 +152,10 @@ def record_attempt_finish(
 
 
 def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
-    """
-    Execute the restart_service playbook
+    """Execute the restart_service playbook.
 
     The caller owns the transaction.
-    This function MUST NOT call commit() or rollback()
+    This function MUST NOT call commit() or rollback().
     """
 
     incident = transition(
@@ -214,9 +184,7 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
             playbook,
         )
         try:
-            #
-            # 1. Container must exist
-            #
+            # 1. Container must exist.
 
             try:
                 container = client.containers.get(container_name)
@@ -239,15 +207,10 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
                 )
                 return
 
-            #
             # Restart the container.
-            #
-
             container.restart()
 
-            #
-            # Poll until recovery or timeout
-            #
+            # Poll until recovery or timeout.
 
             deadline = time.monotonic() + VERIFY_TIMEOUT
             while time.monotonic() < deadline:
@@ -275,9 +238,7 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
                     return
                 time.sleep(VERIFY_INTERVAL)
 
-            #
             # Verification timed out.
-            #
 
             record_attempt_finish(
                 conn,
@@ -287,9 +248,7 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
                 result="timeout",
                 error=(f"Verification timed out after {VERIFY_TIMEOUT} seconds"),
             )
-        #
-        # Docker Engine failures are infrastructure failures, not remediation outcomes. Record the failed attempt so the audit trail stays complete, then propagate the exception to the worker.
-        #
+        # Record infrastructure failures for auditability, then propagate them.
 
         except docker.errors.APIError as e:
             record_attempt_finish(
@@ -315,11 +274,10 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
 
 
 def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
-    """
-    Execute the collect_diagnostics playbook
+    """Execute the collect_diagnostics playbook.
 
     The caller owns the transaction.
-    This function MUST NOT call commit() or rollback()
+    This function MUST NOT call commit() or rollback().
     """
 
     incident = transition(
@@ -346,9 +304,7 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
     )
 
     try:
-        #
-        # 1. Container must exist
-        #
+        # 1. Container must exist.
 
         try:
             container = client.containers.get(container_name)
@@ -371,9 +327,7 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
             )
             return
 
-        #
         # Collect diagnostics.
-        #
 
         logs = container.logs(tail=100).decode("utf-8", errors="replace")
 
@@ -413,10 +367,7 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
         )
         return
 
-    #
-    # Docker Engine failures are infrastructure failures, not remediation outcomes. Record the failed attempt so the audit trail stays complete, then propagate the exception to the worker.
-    #
-
+    # Record infrastructure failures for auditability, then propagate them.
     except docker.errors.APIError as e:
         record_attempt_finish(
             conn,
@@ -428,10 +379,7 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
         )
         raise
 
-    #
-    # Diagnostics could not be persisted.
-    # Escalate anyway so an operator is notified.
-    #
+    # Diagnostics could not be persisted; escalate so an operator is notified.
 
     except OSError as e:
         record_attempt_finish(
@@ -449,43 +397,19 @@ def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
 
 
 class DiskMeasurementUnavailable(Exception):
-    """
-    Raised when the post-cleanup filesystem state cannot be determined.
+    """Raised when post-cleanup filesystem state cannot be determined.
 
-    Covers a missing/ambiguous Prometheus response (zero or more than one
-    matching series) as well as request failures (timeout, connection error,
-    non-2xx status). All are treated identically by the caller: the playbook
-    could not verify recovery, so it must not claim one.
+    Covers invalid, stale, ambiguous, or unavailable Prometheus measurements.
     """
 
 
-# Bounded re-check window. Prometheus's scrape_interval is 15s
-# (docker/prometheus/prometheus.yml), so a query fired immediately after
-# cleanup can read a sample taken before cleanup finished (a scrape from
-# moments earlier that is nonetheless still within DISK_SAMPLE_MAX_AGE_SECONDS
-# once cleanup completes a few seconds later). Polling for up to
-# DISK_RECHECK_TIMEOUT at DISK_RECHECK_INTERVAL spans at least one scrape, so
-# a genuine post-cleanup reading becomes available within the window. Note
-# that the retry loop alone does not GUARANTEE a post-cleanup sample -- that
-# guarantee comes from get_disk_free_percent()'s not_before parameter (see
-# below), which this loop always passes as cleanup_completed_at. The loop
-# only provides the time for a fresh scrape to arrive; not_before is what
-# rejects a sample that arrives but still predates cleanup. This can only
-# make a genuine recovery resolve once a valid post-cleanup sample exists --
-# it can never turn a persistently low reading into a false RESOLVED, and a
-# persistent measurement failure still escalates once the window elapses.
+# Prometheus scrapes every 15s. The re-check window gives a fresh sample
+# time to arrive; not_before remains the authoritative post-cleanup guard.
 DISK_RECHECK_TIMEOUT = 20
 DISK_RECHECK_INTERVAL = 5
 
-# A returned sample must be no older than this to be trusted. Guards against
-# a specific, dangerous failure: if node-exporter stops scraping (crashed,
-# network partition) while its LAST successful sample happened to read above
-# the threshold, Prometheus keeps serving that same stale value forever --
-# the retry loop above does not help, because every retry gets the identical
-# stale sample. Sized to comfortably exceed one scrape_interval (15s) plus
-# request latency, without being so loose it accepts genuinely old data.
-# Independent of, and does not substitute for, the not_before causality
-# check below -- a sample can pass this check and still predate cleanup.
+# Allow one scrape interval plus request latency while rejecting genuinely
+# stale samples. Independent of the not_before causality check.
 DISK_SAMPLE_MAX_AGE_SECONDS = 30
 
 
@@ -510,51 +434,32 @@ def get_disk_free_percent(
     not_before: float | None = None,
 ) -> float:
     """
-    Query Prometheus for the free-space percentage of the exact filesystem
-    identified by instance and mountpoint -- the same labels the firing
-    DiskPressure alert carries.
+    Query Prometheus for the free-space percentage of the alert's filesystem.
 
-    Mirrors the alert rule's own selection semantics EXACTLY
-    (docker/prometheus/rules/alerts.yml:5): job=node-exporter, the same
-    fstype exclusion, AND the same mountpoint exclusion
-    (mountpoint!~"/oldroot|/run.*") -- omitting the mountpoint exclusion
-    would let a query with an unexpectedly broad label set match an
-    unintended series that the alert itself would never fire on.
+    The query mirrors the DiskPressure alert's node-exporter and filesystem
+    selection rules. When provided, ``not_before`` rejects samples predating
+    the cleanup completion timestamp, preventing stale pre-cleanup readings
+    from being treated as recovery.
 
-    timeout bounds the HTTP request. The caller is expected to pass the time
-    remaining in its own bounded re-check window, so a request started near
-    the end of that window cannot itself blow past it.
+    Args:
+        instance: Prometheus node-exporter instance label.
+        mountpoint: Filesystem mountpoint label.
+        timeout: Maximum HTTP request duration in seconds.
+        not_before: Optional wall-clock timestamp; samples before this value
+            are rejected.
 
-    not_before, if given, is a time.time()-comparable timestamp (worker wall
-    clock and Prometheus sample timestamps share the same clock domain,
-    confirmed within ~13ms in this environment). A sample timestamped BEFORE
-    not_before is rejected even if it is within DISK_SAMPLE_MAX_AGE_SECONDS --
-    freshness alone does not prove the sample reflects the state AFTER
-    cleanup ran. Without this check, a sample taken moments before cleanup
-    started could still read "fresh" once cleanup finishes a few seconds
-    later, and a disk that was already above threshold before any cleanup
-    happened would resolve the incident without cleanup having verified
-    anything.
+    Returns:
+        The validated filesystem free-space percentage.
 
     Raises:
-        DiskMeasurementUnavailable: any failure to obtain a valid, fresh,
-            finite, in-range, post-cleanup single numeric measurement -- the
-            request failed, the response wasn't well-formed JSON, Prometheus
-            reported status != "success", the result wasn't a vector, the
-            query did not return exactly one matching series, the value
-            wasn't a finite number in [0, 100], the sample is older than
-            DISK_SAMPLE_MAX_AGE_SECONDS, or the sample predates not_before.
+        DiskMeasurementUnavailable: If no single valid, fresh, post-cleanup
+            measurement can be obtained.
     """
 
     instance_expr = _promql_string(instance)
     mountpoint_expr = _promql_string(mountpoint)
 
-    #
-    # fstype!~"tmpfs|erofs|overlay|squashfs" AND mountpoint!~"/oldroot|/run.*"
-    # -- both exclusions from the alert rule, not just the first. A query
-    # that reproduces only part of the alert's selection isn't reproducing
-    # the alert's selection.
-    #
+    # Reproduce both alert rule exclusions (fstype and mountpoint patterns).
     label_matchers = (
         f'job="node-exporter",instance={instance_expr},mountpoint={mountpoint_expr},'
         'fstype!~"tmpfs|erofs|overlay|squashfs",'
@@ -574,14 +479,7 @@ def get_disk_free_percent(
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
         raise DiskMeasurementUnavailable(f"Prometheus query failed: {e}") from e
 
-    #
-    # Validate the response shape before trusting it. A malformed or
-    # non-success response must become DiskMeasurementUnavailable, not a raw
-    # KeyError/TypeError/IndexError leaking an implementation detail past the
-    # function's declared contract. Prometheus's API declares resultType
-    # explicitly (vector/matrix/scalar/string) -- an instant query always
-    # returns "vector"; anything else means the query itself was malformed.
-    #
+    # Normalize malformed or non-success responses to DiskMeasurementUnavailable contract.
 
     if not isinstance(body, dict) or body.get("status") != "success":
         raise DiskMeasurementUnavailable(
@@ -616,15 +514,8 @@ def get_disk_free_percent(
             f"scraping this target"
         )
 
-    #
-    # Freshness (checked above) and post-cleanup causality (checked here) are
-    # independent conditions. A sample can be well within
-    # DISK_SAMPLE_MAX_AGE_SECONDS and still predate cleanup -- e.g. cleanup
-    # takes 5s and the scrape interval is 15s, so a sample from just before
-    # cleanup started can still look "fresh" once cleanup finishes. Only
-    # not_before proves the sample reflects state the cleanup could actually
-    # have influenced.
-    #
+    # Sample-age freshness and post-cleanup causality are independent; a sample can pass
+    # the age check while predating cleanup completion.
 
     if not_before is not None and float(sample_timestamp) < not_before:
         raise DiskMeasurementUnavailable(
@@ -633,12 +524,7 @@ def get_disk_free_percent(
             f"the cleanup's effect"
         )
 
-    #
-    # Reject non-finite or out-of-range values. Prometheus can serialize
-    # +Inf/-Inf/NaN as JSON strings; float("+Inf") parses successfully and
-    # would otherwise compare >= any threshold, producing a false RESOLVED
-    # from a value that was never a real percentage.
-    #
+    # Reject non-finite (+Inf/-Inf/NaN) or out-of-range values to prevent false RESOLVED.
 
     if not math.isfinite(percent_free) or not (0 <= percent_free <= 100):
         raise DiskMeasurementUnavailable(f"measurement out of range: {percent_free!r}")
@@ -668,15 +554,85 @@ def prune_diagnostics(retention_days: int = DIAGNOSTICS_RETENTION_DAYS) -> int:
     return deleted
 
 
-def disk_cleanup(conn, client, incident: dict, cmdb: dict) -> None:
+def _prune_docker_resources(client) -> None:
     """
-    Execute the disk_cleanup playbook.
+    Prune reclaimable Docker container, dangling image, and build cache resources.
+
+    Volumes are deliberately NEVER pruned to protect database and metric storage.
+
+    Args:
+        client: Docker SDK client instance.
+    """
+    client.containers.prune()
+    client.images.prune(filters={"dangling": True})
+    client.api.prune_builds()
+
+
+def await_disk_recovery(
+    instance: str,
+    mountpoint: str,
+    cleanup_completed_at: float,
+    timeout: float = DISK_RECHECK_TIMEOUT,
+    interval: float = DISK_RECHECK_INTERVAL,
+) -> tuple[float | None, str | None]:
+    """
+    Poll Prometheus until free disk space reaches the threshold or the re-check deadline expires.
+
+    Args:
+        instance: Prometheus node-exporter instance label.
+        mountpoint: Target filesystem mountpoint label.
+        cleanup_completed_at: Wall-clock Unix timestamp marking cleanup completion.
+        timeout: Total re-check window in seconds (default: 20s).
+        interval: Polling interval in seconds (default: 1s).
+
+    Returns:
+        tuple[float | None, str | None]:
+            (percent_free: float | None, last_error: str | None)
+            - percent_free is float: Query succeeded (val >= 15 or val < 15).
+            - percent_free is None: Query failed or timed out (error holds description).
+    """
+    deadline = time.monotonic() + timeout
+    percent_free: float | None = None
+    last_error: str | None = None
+
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+
+        try:
+            percent_free = get_disk_free_percent(
+                instance,
+                mountpoint,
+                timeout=min(5.0, remaining),
+                not_before=cleanup_completed_at,
+            )
+        except DiskMeasurementUnavailable as e:
+            percent_free = None
+            last_error = str(e)
+        else:
+            last_error = None
+
+        if percent_free is not None and percent_free >= DISK_PRESSURE_FREE_PERCENT:
+            break
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+
+        time.sleep(min(interval, remaining))
+
+    return percent_free, last_error
+
+
+def disk_cleanup(conn, client, incident: dict, cmdb: dict) -> None:
+    """Execute the disk_cleanup playbook.
 
     Prunes reclaimable Docker data and old diagnostics artifacts, then re-checks
     free space to decide whether the incident recovered.
 
     The caller owns the transaction.
-    This function MUST NOT call commit() or rollback()
+    This function MUST NOT call commit() or rollback().
     """
 
     incident = transition(
@@ -701,18 +657,9 @@ def disk_cleanup(conn, client, incident: dict, cmdb: dict) -> None:
     )
 
     try:
-        #
-        # Conservative prune only.
-        #
-        # Volumes are NEVER pruned: postgres_data holds every incident in the
-        # system, and DiskPressure is a warning-severity alert. Unused-but-tagged
-        # images are also left alone -- deleting an image the estate needs turns
-        # a disk warning into a failed restart_service during the next outage.
-        #
+        # Conservative prune only: never remove volumes or non-dangling images.
 
-        client.containers.prune()
-        client.images.prune(filters={"dangling": True})
-        client.api.prune_builds()
+        _prune_docker_resources(client)
 
         try:
             deleted = prune_diagnostics()
@@ -734,25 +681,11 @@ def disk_cleanup(conn, client, incident: dict, cmdb: dict) -> None:
             )
             return
 
-        #
-        # Recorded immediately after the Docker prune and diagnostics prune
-        # above have both succeeded -- this is the instant cleanup actually
-        # finished. Any Prometheus sample timestamped before this point
-        # cannot reflect the cleanup's effect, no matter how "fresh" it looks
-        # by DISK_SAMPLE_MAX_AGE_SECONDS alone.
-        #
+        # Mark cleanup completion so Prometheus samples predating this point are rejected.
 
         cleanup_completed_at = time.time()
 
-        #
-        # Re-check the exact filesystem the firing alert named, via
-        # Prometheus, to decide the operational outcome. instance/mountpoint
-        # come from the incident's own labels -- Alertmanager attaches both
-        # automatically, and the webhook handler already persists the
-        # complete raw label set verbatim (see ingest_alert()/handle_alert()
-        # in handlers.py). Missing either is treated the same as a failed
-        # query: the playbook cannot identify which filesystem to verify.
-        #
+        # Both instance and mountpoint labels are required to identify the target filesystem.
 
         instance = incident["labels"].get("instance")
         mountpoint = incident["labels"].get("mountpoint")
@@ -778,42 +711,11 @@ def disk_cleanup(conn, client, incident: dict, cmdb: dict) -> None:
             )
             return
 
-        deadline = time.monotonic() + DISK_RECHECK_TIMEOUT
-        percent_free = None
-        last_error = None
-
-        while True:
-            #
-            # The query's own HTTP timeout is bounded by whatever's left in
-            # the re-check window, not a fixed 5s -- otherwise a request
-            # starting near the deadline could still push the total past
-            # DISK_RECHECK_TIMEOUT, making "bounded 20s re-check" untrue.
-            #
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-
-            try:
-                percent_free = get_disk_free_percent(
-                    instance,
-                    mountpoint,
-                    timeout=min(5, remaining),
-                    not_before=cleanup_completed_at,
-                )
-            except DiskMeasurementUnavailable as e:
-                percent_free = None
-                last_error = str(e)
-            else:
-                last_error = None
-
-            if percent_free is not None and percent_free >= DISK_PRESSURE_FREE_PERCENT:
-                break
-
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-
-            time.sleep(min(DISK_RECHECK_INTERVAL, remaining))
+        percent_free, last_error = await_disk_recovery(
+            instance,
+            mountpoint,
+            cleanup_completed_at,
+        )
 
         if percent_free is None:
             record_attempt_finish(
@@ -833,12 +735,7 @@ def disk_cleanup(conn, client, incident: dict, cmdb: dict) -> None:
             )
             return
 
-        #
-        # The cleanup itself succeeded either way. Whether it reclaimed *enough*
-        # is an operational outcome carried by the incident state, not an
-        # execution failure -- recording it as a failure would fire
-        # RemediationFailureRateHigh when the playbook worked as designed.
-        #
+        # Reclaiming insufficient space is an operational outcome (escalation), not a playbook failure.
 
         record_attempt_finish(
             conn,
@@ -873,9 +770,7 @@ def disk_cleanup(conn, client, incident: dict, cmdb: dict) -> None:
         )
         return
 
-    #
-    # Docker Engine failures are infrastructure failures, not remediation outcomes. Record the failed attempt so the audit trail stays complete, then propagate the exception to the worker.
-    #
+    # Record infrastructure failures for auditability, then propagate them.
 
     except docker.errors.APIError as e:
         record_attempt_finish(
