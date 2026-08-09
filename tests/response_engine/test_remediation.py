@@ -41,9 +41,11 @@ def fake_clock():
     clock = [1_000_000.0]
 
     def fake_monotonic():
+        """Verify that fake monotonic."""
         return clock[0]
 
     def fake_sleep(seconds):
+        """Verify that fake sleep."""
         clock[0] += seconds
 
     with (
@@ -60,12 +62,14 @@ def fake_clock():
 
 
 def _status(db_connection, incident_id: int) -> str:
+    """Verify that status."""
     with db_connection.cursor() as cur:
         cur.execute("SELECT status FROM incidents WHERE id = %s", (incident_id,))
         return cur.fetchone()["status"]
 
 
 def _attempts(db_connection, incident_id: int) -> list[dict]:
+    """Verify that attempts."""
     with db_connection.cursor() as cur:
         cur.execute(
             """
@@ -82,6 +86,7 @@ def _attempts(db_connection, incident_id: int) -> list[dict]:
 def test_resolves_when_cleanup_frees_enough_space(
     db_connection, make_incident, docker_client
 ):
+    """Verify that resolves when cleanup frees enough space."""
     incident = make_incident(
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
@@ -108,6 +113,7 @@ def test_resolves_when_cleanup_frees_enough_space(
 def test_escalates_when_disk_still_low(
     db_connection, make_incident, docker_client, fake_clock
 ):
+    """Verify that escalates when disk still low."""
     from automation.response_engine.remediation import DISK_RECHECK_TIMEOUT
 
     incident = make_incident(
@@ -150,6 +156,7 @@ def test_escalates_when_disk_still_low(
 
 
 def test_never_prunes_volumes(db_connection, make_incident, docker_client):
+    """Verify that never prunes volumes."""
     incident = make_incident(
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
@@ -175,6 +182,7 @@ def test_never_prunes_volumes(db_connection, make_incident, docker_client):
 def test_prunes_exactly_the_three_intended_surfaces(
     db_connection, make_incident, docker_client
 ):
+    """Verify that prunes exactly the three intended surfaces."""
     incident = make_incident(
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
@@ -202,6 +210,7 @@ def test_prunes_exactly_the_three_intended_surfaces(
 def test_records_failure_and_reraises_on_docker_api_error(
     db_connection, make_incident, docker_client
 ):
+    """Verify that records failure and reraises on docker api error."""
     incident = make_incident(
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
@@ -225,6 +234,7 @@ def test_records_failure_and_reraises_on_docker_api_error(
 def test_records_failure_and_escalates_when_diagnostics_pruning_fails(
     db_connection, make_incident, docker_client
 ):
+    """Verify that records failure and escalates when diagnostics pruning fails."""
     incident = make_incident(
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
@@ -265,6 +275,7 @@ def test_records_failure_and_escalates_when_diagnostics_pruning_fails(
 def test_records_failure_and_escalates_when_filesystem_recheck_fails(
     db_connection, make_incident, docker_client, fake_clock
 ):
+    """Verify that records failure and escalates when filesystem recheck fails."""
     incident = make_incident(
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
@@ -318,6 +329,7 @@ def test_records_failure_and_escalates_when_filesystem_recheck_fails(
 def test_records_failure_and_escalates_when_alert_missing_disk_labels(
     db_connection, make_incident, docker_client, labels
 ):
+    """Verify that records failure and escalates when alert missing disk labels."""
     incident = make_incident(
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
@@ -350,6 +362,7 @@ def test_records_failure_and_escalates_when_alert_missing_disk_labels(
 
 
 def test_get_disk_free_percent_raises_on_zero_or_multiple_series():
+    """Verify that get disk free percent raises on zero or multiple series."""
     from unittest.mock import MagicMock
 
     from automation.response_engine.remediation import (
@@ -384,6 +397,7 @@ def test_get_disk_free_percent_raises_on_zero_or_multiple_series():
 
 
 def test_get_disk_free_percent_raises_on_non_success_status():
+    """Verify that get disk free percent raises on non success status."""
     from unittest.mock import MagicMock
 
     from automation.response_engine.remediation import (
@@ -411,6 +425,7 @@ def test_get_disk_free_percent_raises_on_non_success_status():
 
 
 def test_get_disk_free_percent_raises_on_non_vector_result_type():
+    """Verify that get disk free percent raises on non vector result type."""
     from unittest.mock import MagicMock
 
     from automation.response_engine.remediation import (
@@ -440,6 +455,7 @@ def test_get_disk_free_percent_raises_on_non_vector_result_type():
 
 
 def test_get_disk_free_percent_wraps_request_failures():
+    """Verify that get disk free percent wraps request failures."""
     import urllib.error
 
     from automation.response_engine.remediation import (
@@ -464,6 +480,7 @@ def test_get_disk_free_percent_wraps_request_failures():
 
 
 def test_get_disk_free_percent_wraps_http_errors():
+    """Verify that get disk free percent wraps http errors."""
     import urllib.error
 
     from automation.response_engine.remediation import (
@@ -494,6 +511,7 @@ def test_get_disk_free_percent_wraps_http_errors():
 
 
 def test_get_disk_free_percent_raises_on_stale_sample():
+    """Verify that get disk free percent raises on stale sample."""
     from unittest.mock import MagicMock
 
     from automation.response_engine.remediation import (
@@ -529,6 +547,7 @@ def test_get_disk_free_percent_raises_on_stale_sample():
 
 
 def test_get_disk_free_percent_accepts_a_fresh_sample():
+    """Verify that get disk free percent accepts a fresh sample."""
     from unittest.mock import MagicMock
 
     from automation.response_engine.remediation import get_disk_free_percent
@@ -553,6 +572,7 @@ def test_get_disk_free_percent_accepts_a_fresh_sample():
 
 
 def test_get_disk_free_percent_rejects_sample_that_predates_cleanup():
+    """Verify that get disk free percent rejects sample that predates cleanup."""
     from unittest.mock import MagicMock
 
     from automation.response_engine.remediation import (
@@ -593,6 +613,7 @@ def test_get_disk_free_percent_rejects_sample_that_predates_cleanup():
 
 
 def test_get_disk_free_percent_accepts_sample_taken_after_cleanup():
+    """Verify that get disk free percent accepts sample taken after cleanup."""
     from unittest.mock import MagicMock
 
     from automation.response_engine.remediation import get_disk_free_percent
@@ -626,6 +647,7 @@ def test_get_disk_free_percent_accepts_sample_taken_after_cleanup():
 
 
 def test_get_disk_free_percent_rejects_non_finite_and_out_of_range_values():
+    """Verify that get disk free percent rejects non finite and out of range values."""
     from unittest.mock import MagicMock
 
     from automation.response_engine.remediation import (
@@ -660,6 +682,7 @@ def test_get_disk_free_percent_rejects_non_finite_and_out_of_range_values():
 
 
 def test_get_disk_free_percent_query_matches_alert_selection_semantics():
+    """Verify that get disk free percent query matches alert selection semantics."""
     from unittest.mock import MagicMock
 
     from automation.response_engine.remediation import get_disk_free_percent
@@ -675,6 +698,7 @@ def test_get_disk_free_percent_query_matches_alert_selection_semantics():
     captured_url = {}
 
     def _fake_urlopen(url, timeout=None):
+        """Verify that fake urlopen."""
         captured_url["url"] = url
         return mock_resp
 
@@ -702,6 +726,7 @@ def test_get_disk_free_percent_query_matches_alert_selection_semantics():
 
 
 def test_promql_string_escapes_special_characters():
+    """Verify that promql string escapes special characters."""
     from automation.response_engine.remediation import _promql_string
 
     #
@@ -715,6 +740,7 @@ def test_promql_string_escapes_special_characters():
 def test_escalates_when_service_missing_from_cmdb(
     db_connection, make_incident, docker_client
 ):
+    """Verify that escalates when service missing from cmdb."""
     incident = make_incident(
         status="ACKNOWLEDGED",
         alert_name="DiskPressure",
@@ -733,6 +759,7 @@ def test_escalates_when_service_missing_from_cmdb(
 
 
 def test_prune_diagnostics_deletes_only_old_artifacts(tmp_path):
+    """Verify that prune diagnostics deletes only old artifacts."""
     from automation.response_engine import remediation
 
     old = tmp_path / "INC-000001-attempt-1.json"
@@ -752,6 +779,7 @@ def test_prune_diagnostics_deletes_only_old_artifacts(tmp_path):
 
 
 def test_prune_diagnostics_tolerates_missing_directory(tmp_path):
+    """Verify that prune diagnostics tolerates missing directory."""
     from automation.response_engine import remediation
 
     with patch.object(remediation, "DIAGNOSTICS_DIR", tmp_path / "nope"):

@@ -1,3 +1,10 @@
+"""
+Custom Prometheus metric collectors for SentinelOps.
+
+Queries PostgreSQL state dynamically during scrapes to expose live incident counts
+by service/severity/status (`sentinelops_incidents`) and worker queue depth (`sentinelops_queue_depth`).
+"""
+
 from __future__ import annotations
 
 import logging
@@ -11,15 +18,28 @@ logger = logging.getLogger(__name__)
 
 class IncidentsCollector(Collector):
     """
-    State metric: current incident distribution by (service, severity, status).
+    Custom Prometheus collector for incident distribution metrics.
 
-    Computed fresh from PostgreSQL on every scrape -- never cached in process memory, so this can never disagree with the database or with any other process reading the same table.
+    Dynamically queries PostgreSQL on every scrape to report current incident counts
+    grouped by (service, severity, status).
     """
 
     def __init__(self, connect: Callable[[], object]):
+        """
+        Initialize collector with a database connection factory.
+
+        Args:
+            connect: Callable returning an active PostgreSQL connection object.
+        """
         self._connect = connect
 
     def collect(self):
+        """
+        Collect sentinelops_incidents gauge metric family.
+
+        Yields:
+            GaugeMetricFamily: Incident metrics with service, severity, and status labels.
+        """
         family = GaugeMetricFamily(
             "sentinelops_incidents",
             "Current incidents by service, severity, and status",
@@ -72,9 +92,21 @@ class QueueDepthCollector(Collector):
     """
 
     def __init__(self, connect: Callable[[], object]):
+        """
+        Initialize QueueDepthCollector with a database connection factory.
+
+        Args:
+            connect: Callable returning an active PostgreSQL connection object.
+        """
         self._connect = connect
 
     def collect(self):
+        """
+        Collect sentinelops_queue_depth gauge metric family.
+
+        Yields:
+            GaugeMetricFamily: Queue depth metrics.
+        """
         family = GaugeMetricFamily(
             "sentinelops_queue_depth",
             "Incidents currently eligible to be claimed by a worker",

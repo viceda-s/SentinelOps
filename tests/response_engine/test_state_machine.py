@@ -23,6 +23,7 @@ def histogram_count(histogram: Histogram) -> float:
 def test_transition_to_acknowledged_observes_response_histogram(
     db_connection, make_incident
 ):
+    """Verify that transition to acknowledged observes response histogram."""
     incident = make_incident(
         detected_at=datetime.now(timezone.utc) - timedelta(minutes=5), status="NEW"
     )
@@ -45,6 +46,7 @@ def test_transition_to_acknowledged_observes_response_histogram(
 def test_transition_to_resolved_observes_resolution_histogram(
     db_connection, make_incident
 ):
+    """Verify that transition to resolved observes resolution histogram."""
     incident = make_incident(
         detected_at=datetime.now(timezone.utc) - timedelta(minutes=10),
         status="IN_PROGRESS",
@@ -66,6 +68,7 @@ def test_transition_to_resolved_observes_resolution_histogram(
 
 
 def test_transition_to_in_progress_observes_no_histogram(db_connection, make_incident):
+    """Verify that transition to in progress observes no histogram."""
     incident = make_incident(
         detected_at=datetime.now(timezone.utc) - timedelta(minutes=5),
         status="ACKNOWLEDGED",
@@ -90,6 +93,7 @@ def test_transition_to_suppressed_maintenance(
     db_connection,
     make_incident,
 ):
+    """Verify that transition to suppressed maintenance."""
     incident = make_incident(status="NEW")
 
     updated = transition(
@@ -107,6 +111,7 @@ def test_transition_from_suppressed_maintenance_to_in_progress_is_rejected(
     db_connection,
     make_incident,
 ):
+    """Verify that transition from suppressed maintenance to in progress is rejected."""
     incident = make_incident(status="SUPPRESSED_MAINTENANCE")
 
     try:
@@ -127,6 +132,7 @@ def test_transition_from_suppressed_maintenance_to_resolved(
     db_connection,
     make_incident,
 ):
+    """Verify that transition from suppressed maintenance to resolved."""
     incident = make_incident(status="SUPPRESSED_MAINTENANCE")
 
     updated = transition(
@@ -170,6 +176,7 @@ def test_transition_from_suppressed_maintenance_through_resolved_to_closed(
     db_connection,
     make_incident,
 ):
+    """Verify that transition from suppressed maintenance through resolved to closed."""
     incident = make_incident(status="SUPPRESSED_MAINTENANCE")
 
     resolved = transition(

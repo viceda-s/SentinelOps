@@ -22,11 +22,16 @@ CMDB = {
 
 
 def _fake_silences_response(silences: list[dict]):
+    """
+    Create a mock HTTP response object returning a JSON list of Alertmanager silences.
+    """
+
     class FakeResponse:
         def raise_for_status(self):
-            pass
+            """Verify that raise for status."""
 
         def json(self):
+            """Verify that json."""
             return silences
 
     return FakeResponse()
@@ -35,6 +40,9 @@ def _fake_silences_response(silences: list[dict]):
 def test_query_health_state_marks_service_with_open_incident(
     db_connection, make_incident
 ):
+    """
+    Verify that query_health_state updates service status when an open incident exists.
+    """
     make_incident(
         service="api",
         status="IN_PROGRESS",
@@ -60,6 +68,9 @@ def test_query_health_state_marks_service_with_open_incident(
 def test_query_health_state_shows_most_severe_incident_status(
     db_connection, make_incident
 ):
+    """
+    Verify that the health state reflects the most severe active incident for a service.
+    """
     # The health page reflects the most severe open incident affecting a service, not whichever incident happens to be returned first.
     make_incident(
         service="api",
@@ -85,6 +96,9 @@ def test_query_health_state_shows_most_severe_incident_status(
 
 
 def test_query_health_state_counts_by_severity(db_connection, make_incident):
+    """
+    Verify that query_health_state aggregates incident counts by severity level.
+    """
     make_incident(
         service="api",
         status="NEW",
@@ -107,6 +121,9 @@ def test_query_health_state_counts_by_severity(db_connection, make_incident):
 
 
 def test_query_health_state_excludes_resolved_incidents(db_connection, make_incident):
+    """
+    Verify that query_health_state excludes resolved incidents from open incident lists.
+    """
     make_incident(
         service="api",
         status="RESOLVED",
@@ -127,6 +144,9 @@ def test_query_health_state_excludes_resolved_incidents(db_connection, make_inci
 
 
 def test_query_health_state_page_produces_html(db_connection):
+    """
+    Verify that render_health_page produces valid HTML markup containing service entries.
+    """
     with patch(
         "automation.report_generator.health_page.requests.get",
         return_value=_fake_silences_response([]),
@@ -141,6 +161,9 @@ def test_query_health_state_page_produces_html(db_connection):
 
 
 def test_query_health_state_rejects_unknown_severity(db_connection, make_incident):
+    """
+    Verify that query_health_state raises ValueError when encountering an unknown severity.
+    """
     make_incident(
         service="api",
         status="NEW",
@@ -158,6 +181,9 @@ def test_query_health_state_rejects_unknown_severity(db_connection, make_inciden
 
 
 def test_query_health_state_includes_active_maintenance_windows(db_connection):
+    """
+    Verify that active Alertmanager silences are parsed into maintenance window entries.
+    """
     active_silence = {
         "id": "silence-1",
         "status": {"state": "active"},
@@ -193,6 +219,9 @@ def test_query_health_state_includes_active_maintenance_windows(db_connection):
 
 
 def test_query_health_state_handles_alertmanager_unreachable(db_connection):
+    """
+    Verify that query_health_state gracefully handles Alertmanager connection failures.
+    """
     import requests
 
     with patch(

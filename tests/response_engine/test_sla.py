@@ -19,6 +19,7 @@ def counter_value(counter: Counter, **labels) -> float:
 
 
 def test_response_sla_breached(db_connection, make_incident):
+    """Verify that response sla breached."""
     incident = make_incident(
         status="NEW",
         detected_at=datetime.now(timezone.utc) - timedelta(minutes=10),
@@ -70,6 +71,7 @@ def test_response_sla_breached(db_connection, make_incident):
 
 
 def test_response_sla_not_breached(db_connection, make_incident):
+    """Verify that response sla not breached."""
     incident = make_incident(
         status="NEW",
         detected_at=datetime.now(timezone.utc) - timedelta(minutes=2),
@@ -116,6 +118,7 @@ def test_response_sla_not_breached(db_connection, make_incident):
 
 
 def test_resolution_sla_breached(db_connection, make_incident):
+    """Verify that resolution sla breached."""
     incident = make_incident(
         status="IN_PROGRESS",
         detected_at=datetime.now(timezone.utc) - timedelta(minutes=90),
@@ -167,6 +170,7 @@ def test_resolution_sla_breached(db_connection, make_incident):
 
 
 def test_sla_breach_is_idempotent(db_connection, make_incident):
+    """Verify that sla breach is idempotent."""
     incident = make_incident(
         status="NEW",
         detected_at=datetime.now(timezone.utc) - timedelta(minutes=10),
@@ -203,6 +207,7 @@ def test_sla_breach_is_idempotent(db_connection, make_incident):
 
 
 def test_terminal_incident_is_ignored(db_connection, make_incident):
+    """Verify that terminal incident is ignored."""
     incident = make_incident(
         status="CLOSED",
         detected_at=datetime.now(timezone.utc) - timedelta(days=1),
@@ -260,6 +265,7 @@ def test_check_sla_breaches_logs_response_breach(
     make_incident,
     caplog,
 ):
+    """Verify that check sla breaches logs response breach."""
     incident = make_incident(
         status="NEW",
         detected_at=datetime.now(timezone.utc) - timedelta(minutes=10),

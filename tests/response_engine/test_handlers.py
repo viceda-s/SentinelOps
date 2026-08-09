@@ -17,6 +17,7 @@ from tests.response_engine.helpers import (
 def test_new_incident_increments_created_counter(
     db_connection, committed_incident_cleanup
 ):
+    """Verify that new incident increments created counter."""
     alert = _firing_alert()
 
     before = counter_value(
@@ -58,6 +59,7 @@ def test_new_incident_increments_created_counter(
 def test_duplicate_alert_does_not_increment_created_counter(
     db_connection, committed_incident_cleanup
 ):
+    """Verify that duplicate alert does not increment created counter."""
     alert = _firing_alert()
 
     handle_alert(db_connection, alert, CMDB)
@@ -127,6 +129,7 @@ def test_ingest_alert_creates_new_incident(
     db_connection,
     committed_incident_cleanup,
 ):
+    """Verify that ingest alert creates new incident."""
     alert = _firing_alert()
 
     incident = ingest_alert(
@@ -164,6 +167,7 @@ def test_ingest_alert_is_policy_free(
     db_connection,
     committed_incident_cleanup,
 ):
+    """Verify that ingest alert is policy free."""
     alert = _firing_alert()
 
     alert["labels"]["job"] = "unknown-service"
@@ -186,6 +190,7 @@ def test_record_note_event_appends_without_changing_status(
     db_connection,
     committed_incident_cleanup,
 ):
+    """Verify that record note event appends without changing status."""
     alert = _firing_alert()
 
     incident = ingest_alert(
@@ -236,6 +241,7 @@ def test_record_note_event_defaults_payload_to_empty_dict(
     db_connection,
     committed_incident_cleanup,
 ):
+    """Verify that record note event defaults payload to empty dict."""
     alert = _firing_alert()
 
     incident = ingest_alert(
@@ -269,6 +275,7 @@ def test_record_note_event_defaults_payload_to_empty_dict(
 
 
 def test_record_note_event_persists_silence_id(db_connection, make_incident):
+    """Verify that record note event persists silence id."""
     incident = make_incident(status="IN_PROGRESS")
 
     record_note_event(
@@ -302,6 +309,7 @@ def test_record_note_event_defaults_silence_id_to_null(db_connection, make_incid
     # The webhook duplicate-notification path passes no silence_id. Those rows
     # must stay outside the partial unique index so that path keeps recording a
     # NOTE per duplicate notification.
+    """Verify that record note event defaults silence id to null."""
     incident = make_incident(status="IN_PROGRESS")
 
     record_note_event(
@@ -335,6 +343,7 @@ def test_record_note_event_defaults_silence_id_to_null(db_connection, make_incid
 
 def test_record_note_event_rejects_duplicate_silence_id(db_connection, make_incident):
     # The database, not application logic, is what makes the invariant true.
+    """Verify that record note event rejects duplicate silence id."""
     incident = make_incident(status="IN_PROGRESS")
 
     record_note_event(

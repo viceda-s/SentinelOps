@@ -41,12 +41,30 @@ def format_timestamp(value: datetime | None) -> str:
 
 
 def format_bool(value: bool | None) -> str:
+    """
+    Format a boolean value as a human-readable string.
+
+    Args:
+        value: Optional boolean value.
+
+    Returns:
+        str: 'Yes' if True, 'No' if False, '-' if None.
+    """
     if value is None:
         return "-"
     return "Yes" if value else "No"
 
 
 def format_duration(delta: timedelta | None) -> str:
+    """
+    Format a timedelta as a human-readable duration string (Xh YYm ZZs).
+
+    Args:
+        delta: Optional timedelta instance.
+
+    Returns:
+        str: Formatted duration string, or '-' if delta is None.
+    """
     if delta is None:
         return "-"
 

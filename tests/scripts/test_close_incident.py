@@ -8,6 +8,7 @@ from automation.scripts.close_incident import close_incident, find_incident_by_r
 
 
 def test_close_incident_success(db_connection, make_incident):
+    """Verify that close incident success."""
     incident = make_incident(
         status="RESOLVED",
         resolved_at=datetime.now(timezone.utc),
@@ -43,11 +44,13 @@ def test_close_incident_success(db_connection, make_incident):
 
 
 def test_close_incident_unknown_reference(db_connection, make_incident):
+    """Verify that close incident unknown reference."""
     with pytest.raises(ValueError, match="INC-DOES-NOT-EXIST"):
         close_incident(db_connection, "INC-DOES-NOT-EXIST", "RCA")
 
 
 def test_close_incident_requires_resolved_state(db_connection, make_incident):
+    """Verify that close incident requires resolved state."""
     incident = make_incident(status="NEW")
 
     with pytest.raises(ValueError, match="NEW"):
@@ -67,6 +70,7 @@ def test_close_incident_requires_resolved_state(db_connection, make_incident):
 def test_close_incident_does_not_commit_transaction(
     db_connection, make_incident, committed_incident_cleanup
 ):
+    """Verify that close incident does not commit transaction."""
     incident = make_incident(
         status="RESOLVED",
         resolved_at=datetime.now(timezone.utc),
@@ -104,6 +108,7 @@ def test_close_incident_does_not_commit_transaction(
 def test_find_incident_by_reference_acquires_row_lock(
     db_connection, make_incident, committed_incident_cleanup
 ):
+    """Verify that find incident by reference acquires row lock."""
     incident = make_incident(
         status="RESOLVED",
         resolved_at=datetime.now(timezone.utc),

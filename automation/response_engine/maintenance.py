@@ -1,3 +1,10 @@
+"""
+Maintenance window monitor for SentinelOps.
+
+Polls Alertmanager for silenced alerts, ingests suppressed alerts into PostgreSQL under
+the `SUPPRESSED_MAINTENANCE` state, and reconciles collisions with active incidents.
+"""
+
 from __future__ import annotations
 
 import logging

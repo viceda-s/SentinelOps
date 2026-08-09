@@ -24,6 +24,7 @@ _reference_counter = itertools.count(1)
 
 @pytest.fixture
 def db_connection():
+    """Verify that db connection."""
     conn = psycopg2.connect(
         host=os.environ.get("POSTGRES_HOST", "localhost"),
         port=int(os.environ.get("POSTGRES_PORT", "5432")),
@@ -87,7 +88,10 @@ def committed_incident_cleanup():
 
 @pytest.fixture
 def make_incident(db_connection):
+    """Verify that make incident."""
+
     def _make_incident(**overrides):
+        """Verify that make incident."""
         n = next(_reference_counter)
 
         values = {

@@ -1,3 +1,10 @@
+"""
+PDF rendering package for SentinelOps incident reports.
+
+Provides functions for rendering `ReportModel` instances to PDF byte streams using ReportLab,
+atomically publishing PDF files to disk, and recording SHA-256 checksums in PostgreSQL.
+"""
+
 from __future__ import annotations
 
 import hashlib

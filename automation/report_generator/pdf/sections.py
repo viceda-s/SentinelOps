@@ -36,6 +36,15 @@ from .styles import (
 
 
 def build_header(model: ReportModel) -> list[Flowable]:
+    """
+    Build report header elements containing title, subtitle, and incident reference.
+
+    Args:
+        model: ReportModel dataclass instance.
+
+    Returns:
+        list[Flowable]: List of ReportLab flowable elements.
+    """
     return [
         Paragraph("SentinelOps", styles["ReportTitle"]),
         Paragraph("Incident Report", styles["ReportSubtitle"]),
@@ -48,6 +57,15 @@ def build_header(model: ReportModel) -> list[Flowable]:
 
 
 def build_incident_information(model: ReportModel) -> list[Flowable]:
+    """
+    Build Incident Information flowable section.
+
+    Args:
+        model: ReportModel instance.
+
+    Returns:
+        list[Flowable]: Flowable table and spacer elements.
+    """
     incident = model.incident
 
     table = label_value_table(
@@ -69,6 +87,15 @@ def build_incident_information(model: ReportModel) -> list[Flowable]:
 
 
 def build_detection_details(model: ReportModel) -> list[Flowable]:
+    """
+    Build Detection Details flowable section including alert name, labels, and annotations.
+
+    Args:
+        model: ReportModel instance.
+
+    Returns:
+        list[Flowable]: Flowable paragraphs and tables.
+    """
     incident = model.incident
 
     return [
@@ -133,6 +160,15 @@ def build_timeline(model: ReportModel) -> list[Flowable]:
 
 
 def build_actions_taken(model: ReportModel) -> list[Flowable]:
+    """
+    Build Actions Taken flowable section listing executed remediation playbooks.
+
+    Args:
+        model: ReportModel instance.
+
+    Returns:
+        list[Flowable]: Flowable list elements.
+    """
     actions = [entry for entry in model.timeline if entry.kind == "remediation_attempt"]
 
     if not actions:
@@ -174,6 +210,15 @@ def build_actions_taken(model: ReportModel) -> list[Flowable]:
 
 
 def build_diagnostic_evidence(model: ReportModel) -> list[Flowable]:
+    """
+    Build Diagnostic Evidence flowable section including collected JSON metrics.
+
+    Args:
+        model: ReportModel instance.
+
+    Returns:
+        list[Flowable]: Flowable paragraphs and tables.
+    """
     heading = Paragraph("Diagnostic Evidence", styles["SectionHeading"])
     body: list[Flowable] = [
         Paragraph("<b>Alert labels:</b> Included", styles["ReportBody"]),
@@ -194,6 +239,15 @@ def build_diagnostic_evidence(model: ReportModel) -> list[Flowable]:
 
 
 def build_recovery_sla(model: ReportModel) -> list[Flowable]:
+    """
+    Build Recovery Time and SLA Outcome flowable section.
+
+    Args:
+        model: ReportModel instance.
+
+    Returns:
+        list[Flowable]: Flowable table and spacer elements.
+    """
     incident = model.incident
 
     recovery = None
@@ -225,6 +279,15 @@ def build_recovery_sla(model: ReportModel) -> list[Flowable]:
 
 
 def build_root_cause_analysis(model: ReportModel) -> list[Flowable]:
+    """
+    Build Root Cause Analysis flowable section.
+
+    Args:
+        model: ReportModel instance.
+
+    Returns:
+        list[Flowable]: Flowable paragraphs.
+    """
     rca_text = model.incident.get("root_cause_analysis") or "PENDING RCA"
 
     return [

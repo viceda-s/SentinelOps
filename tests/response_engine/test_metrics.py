@@ -12,6 +12,7 @@ from automation.response_engine.metrics import (
 
 
 def test_metric_types():
+    """Verify that metric types."""
     assert isinstance(INCIDENTS_CREATED_TOTAL, Counter)
     assert isinstance(REMEDIATION_ATTEMPTS_TOTAL, Counter)
     assert isinstance(SLA_BREACHES_TOTAL, Counter)
@@ -23,6 +24,7 @@ def test_metric_types():
 
 
 def test_incident_created_total_labels():
+    """Verify that incident created total labels."""
     INCIDENTS_CREATED_TOTAL.labels(
         service="api",
         severity="critical",
@@ -36,6 +38,7 @@ def test_incident_created_total_labels():
 
 
 def test_remediation_attempt_total_labels():
+    """Verify that remediation attempt total labels."""
     REMEDIATION_ATTEMPTS_TOTAL.labels(
         playbook="restart_service",
         result="success",
@@ -53,6 +56,7 @@ def test_remediation_attempt_total_labels():
 
 
 def test_sla_breaches_total_labels():
+    """Verify that sla breaches total labels."""
     SLA_BREACHES_TOTAL.labels(type="response")
 
     with pytest.raises(ValueError):
@@ -66,6 +70,7 @@ def test_sla_breaches_total_labels():
 
 
 def test_worker_heartbeat_timestamp_has_no_labels():
+    """Verify that worker heartbeat timestamp has no labels."""
     WORKER_HEARTBEAT_TIMESTAMP.set_to_current_time()
 
     with pytest.raises(ValueError):

@@ -1,3 +1,10 @@
+"""
+Database connection factory for the SentinelOps response engine.
+
+Provides helper functions for instantiating PostgreSQL connections configured with
+`RealDictCursor` for dictionary-style row access.
+"""
+
 from __future__ import annotations
 
 import os
@@ -8,10 +15,13 @@ import psycopg2.extras
 
 def get_connection():
     """
-    Create a PostgreSQL connection.
+    Create a PostgreSQL connection configured for response engine services.
+
+    Reads database credentials from environment variables (`RESPONSE_ENGINE_DB_USER`,
+    `RESPONSE_ENGINE_DB_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`).
 
     Returns:
-        A new PostgreSQL connection using the response engine database credentials.
+        psycopg2.connection: A new PostgreSQL connection using RealDictCursor.
     """
 
     return psycopg2.connect(

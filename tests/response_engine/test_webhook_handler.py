@@ -4,6 +4,7 @@ from automation.response_engine.webhook_handler import app
 
 
 def test_metrics_endpoint():
+    """Verify that metrics endpoint."""
     client = app.test_client()
 
     response = client.get("/metrics")

@@ -1,3 +1,11 @@
+"""
+Remediation playbooks and attempt recording module for SentinelOps.
+
+Implements autonomous recovery playbooks (`restart_service`, `collect_diagnostics`,
+`disk_cleanup`), records attempt start and finish timestamps using wall-clock precision
+(`clock_timestamp()`), and queries Prometheus for disk pressure verification.
+"""
+
 from __future__ import annotations
 
 import json

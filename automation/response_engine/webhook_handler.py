@@ -1,3 +1,10 @@
+"""
+Webhook handler web service for SentinelOps.
+
+Provides Flask HTTP endpoints for receiving Alertmanager webhooks (`/alerts`)
+and exposing Prometheus metrics (`/metrics`).
+"""
+
 from __future__ import annotations
 
 import logging
@@ -32,13 +39,16 @@ cmdb = load_cmdb()
 @app.post("/alerts")
 def alerts():
     """
-    Receive Alertmanager webhooks.
+    Receive and process Alertmanager HTTP webhook payloads.
 
-    Response codes:
+    Parses JSON webhook payloads, iterates through alert lists, enriches incidents
+    using CMDB metadata, and persists incident records to PostgreSQL.
 
-        200  Alert(s) successfully persisted.
-        400  Malformed payload.
-        500  Internal error (Alertmanager should retry).
+    Returns:
+        tuple[Response | str, int]:
+            200: Alert(s) successfully persisted.
+            400: Malformed JSON payload.
+            500: Internal server error (prompts Alertmanager retry).
     """
 
     try:

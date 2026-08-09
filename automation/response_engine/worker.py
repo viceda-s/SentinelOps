@@ -1,3 +1,11 @@
+"""
+Remediation worker process for SentinelOps.
+
+Claims new incidents from PostgreSQL using row locking (`FOR UPDATE`), executes
+configured playbooks (`restart_service`, `collect_diagnostics`, `disk_cleanup`),
+monitors SLA breach targets, and exports Prometheus metrics.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -30,7 +38,18 @@ logger = logging.getLogger(__name__)
 
 
 def dispatch(conn, client, incident: dict, cmdb: dict) -> None:
-    """Execute the playbook associated with an incident."""
+    """
+    Dispatch an incident to its assigned remediation playbook.
+
+    Args:
+        conn: Active PostgreSQL connection (caller manages transactions).
+        client: Docker SDK client instance.
+        incident: Incident dictionary record from the database.
+        cmdb: Loaded CMDB dictionary structure.
+
+    Raises:
+        RuntimeError: If an unrecognized playbook string is encountered.
+    """
 
     playbook = incident["playbook"]
 
@@ -82,6 +101,9 @@ def dispatch(conn, client, incident: dict, cmdb: dict) -> None:
 
 
 def main() -> None:
+    """
+    Execute response engine worker daemon main polling loop.
+    """
     configure_logging()
 
     REGISTRY.register(IncidentsCollector(get_connection))

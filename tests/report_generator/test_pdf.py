@@ -19,6 +19,9 @@ def test_render_pdf_returns_nonempty_pdf_bytes(
     db_connection,
     make_incident,
 ):
+    """
+    Verify that render_pdf returns valid non-empty PDF byte content starting with PDF header.
+    """
     incident = make_incident(
         status="CLOSED",
         root_cause_analysis="RCA text.",
@@ -220,6 +223,9 @@ def test_write_pdf_and_record_writes_file_and_inserts_row(
     make_incident,
     tmp_path,
 ):
+    """
+    Verify that write_pdf_and_record writes PDF file to disk and inserts database report metadata.
+    """
     incident = make_incident(
         status="CLOSED",
         root_cause_analysis="RCA text.",

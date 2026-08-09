@@ -1,3 +1,10 @@
+"""
+Health page model builder and Jinja2 renderer for SentinelOps.
+
+Queries PostgreSQL for open incidents and Alertmanager for active maintenance windows,
+summarizes service health states, and renders HTML dashboard pages.
+"""
+
 from __future__ import annotations
 
 import os
@@ -16,6 +23,16 @@ SEVERITY_RANK = {
 
 @dataclass
 class HealthPageModel:
+    """
+    Data model representing system health state for HTML dashboard rendering.
+
+    Attributes:
+        services: List of service status dictionaries.
+        open_incidents: List of non-terminal open incident row dictionaries.
+        counts_by_severity: Dictionary mapping severity names to active incident counts.
+        active_maintenance_windows: List of active Alertmanager silence dictionaries.
+    """
+
     services: list[dict]
     open_incidents: list[dict]
     counts_by_severity: dict[str, int]
@@ -29,6 +46,18 @@ _TEMPLATE_ENV = Environment(
 
 
 def severity_rank(severity: str) -> int:
+    """
+    Return numerical priority rank for severity strings.
+
+    Args:
+        severity: Severity string ('critical' or 'warning').
+
+    Returns:
+        int: Lower integer value represents higher priority.
+
+    Raises:
+        ValueError: If severity string is not recognized.
+    """
     try:
         return SEVERITY_RANK[severity]
     except KeyError as exc:
@@ -37,7 +66,14 @@ def severity_rank(severity: str) -> int:
 
 def query_health_state(conn, cmdb: dict) -> HealthPageModel:
     """
-    Build the health page model from the CMDB and current open incidents.
+    Build the `HealthPageModel` from CMDB metadata, database incidents, and Alertmanager silences.
+
+    Args:
+        conn: Active PostgreSQL connection with RealDictCursor.
+        cmdb: CMDB configuration dictionary.
+
+    Returns:
+        HealthPageModel: Assembled system health model.
     """
     with conn.cursor() as cur:
         cur.execute(
