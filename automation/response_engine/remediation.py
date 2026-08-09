@@ -16,6 +16,8 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
+from psycopg2.extensions import connection
+
 import docker
 
 from .config import DiagnosticsSettings, PrometheusSettings
@@ -37,7 +39,7 @@ DIAGNOSTICS_RETENTION_DAYS = DIAGNOSTICS_SETTINGS.retention_days
 DIAGNOSTICS_DIR = DIAGNOSTICS_SETTINGS.dir_path
 
 
-def record_attempt_start(conn, incident: dict, playbook: str) -> int:
+def record_attempt_start(conn: connection, incident: dict, playbook: str) -> int:
     """Create a remediation_attempts row for a new remediation attempt.
 
     Returns:
@@ -89,7 +91,7 @@ def record_attempt_start(conn, incident: dict, playbook: str) -> int:
 
 
 def record_attempt_finish(
-    conn,
+    conn: connection,
     incident: dict,
     attempt_number: int,
     playbook: str,
@@ -142,7 +144,9 @@ def record_attempt_finish(
         ).inc()
 
 
-def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
+def restart_service(
+    conn: connection, client: docker.DockerClient, incident: dict, cmdb: dict
+) -> None:
     """Execute the restart_service playbook.
 
     The caller owns the transaction.
@@ -264,7 +268,9 @@ def restart_service(conn, client, incident: dict, cmdb: dict) -> None:
     )
 
 
-def collect_diagnostics(conn, client, incident: dict, cmdb: dict) -> None:
+def collect_diagnostics(
+    conn: connection, client: docker.DockerClient, incident: dict, cmdb: dict
+) -> None:
     """Execute the collect_diagnostics playbook.
 
     The caller owns the transaction.
@@ -545,7 +551,7 @@ def prune_diagnostics(retention_days: int = DIAGNOSTICS_RETENTION_DAYS) -> int:
     return deleted
 
 
-def _prune_docker_resources(client) -> None:
+def _prune_docker_resources(client: docker.DockerClient) -> None:
     """
     Prune reclaimable Docker container, dangling image, and build cache resources.
 
@@ -616,7 +622,9 @@ def await_disk_recovery(
     return percent_free, last_error
 
 
-def disk_cleanup(conn, client, incident: dict, cmdb: dict) -> None:
+def disk_cleanup(
+    conn: connection, client: docker.DockerClient, incident: dict, cmdb: dict
+) -> None:
     """Execute the disk_cleanup playbook.
 
     Prunes reclaimable Docker data and old diagnostics artifacts, then re-checks

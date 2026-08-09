@@ -4,8 +4,10 @@ Incident event persistence and sequence management for SentinelOps.
 
 from __future__ import annotations
 
+from psycopg2.extensions import connection
 
-def get_next_sequence(conn, incident_id: int) -> int:
+
+def get_next_sequence(conn: connection, incident_id: int) -> int:
     """
     Allocate the next sequence number for an incident's events.
 

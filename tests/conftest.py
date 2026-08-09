@@ -31,6 +31,7 @@ def db_connection():
         dbname=required_env("POSTGRES_DB"),
         user=required_env("POSTGRES_USER"),
         password=required_env("POSTGRES_PASSWORD"),
+        options="-c statement_timeout=5000",
         cursor_factory=RealDictCursor,
     )
 
@@ -57,6 +58,7 @@ def committed_incident_cleanup():
         dbname=required_env("POSTGRES_DB"),
         user=required_env("POSTGRES_USER"),
         password=required_env("POSTGRES_PASSWORD"),
+        options="-c statement_timeout=5000",
         cursor_factory=RealDictCursor,
     )
     incident_ids: list[int] = []

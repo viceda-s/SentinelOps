@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import psycopg2
 import psycopg2.extras
+from psycopg2.extensions import connection
 
 from .config import DatabaseSettings
 
 
-def get_connection(settings: DatabaseSettings | None = None):
+def get_connection(settings: DatabaseSettings | None = None) -> connection:
     """
     Create a PostgreSQL connection configured for response engine services.
 

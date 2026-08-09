@@ -14,6 +14,7 @@ from datetime import datetime
 import psycopg2
 import requests
 from prometheus_client import start_http_server
+from psycopg2.extensions import connection
 
 from .cmdb import load_cmdb
 from .config import AlertmanagerSettings
@@ -69,7 +70,9 @@ def fetch_suppressed_alerts(alertmanager_url: str) -> list[dict]:
     return alerts
 
 
-def suppressed_incident_exists(conn, fingerprint: str, starts_at: str) -> bool:
+def suppressed_incident_exists(
+    conn: connection, fingerprint: str, starts_at: str
+) -> bool:
     """
     Check whether this Alertmanager firing has already been recorded as a SUPPRESSED_MAINTENANCE incident.
 
@@ -92,7 +95,9 @@ def suppressed_incident_exists(conn, fingerprint: str, starts_at: str) -> bool:
         return cur.fetchone() is not None
 
 
-def find_suppressed_incident(conn, fingerprint: str, starts_at: str) -> dict | None:
+def find_suppressed_incident(
+    conn: connection, fingerprint: str, starts_at: str
+) -> dict | None:
     """
     Return the existing SUPPRESSED_MAINTENANCE incident for this firing, if any.
 
@@ -115,7 +120,7 @@ def find_suppressed_incident(conn, fingerprint: str, starts_at: str) -> dict | N
         return cur.fetchone()
 
 
-def find_actionable_incident(conn, fingerprint: str) -> dict | None:
+def find_actionable_incident(conn: connection, fingerprint: str) -> dict | None:
     """
     Return the open actionable incident for this fingerprint, if one exists.
 
@@ -142,7 +147,7 @@ def find_actionable_incident(conn, fingerprint: str) -> dict | None:
         return cur.fetchone()
 
 
-def process_suppressed_alert(conn, alert: dict, cmdb: dict) -> dict | None:
+def process_suppressed_alert(conn: connection, alert: dict, cmdb: dict) -> dict | None:
     """
     Record an active Alertmanager-suppressed alert as a maintenance incident.
 

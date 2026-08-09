@@ -18,6 +18,7 @@ def _connect_test_db():
         dbname=required_env("POSTGRES_DB"),
         user=required_env("POSTGRES_USER"),
         password=required_env("POSTGRES_PASSWORD"),
+        options="-c statement_timeout=5000",
         cursor_factory=RealDictCursor,
     )
 
@@ -184,3 +185,5 @@ def test_callers_delegate_to_get_next_sequence(
         assert mock_sla.call_count >= 1
         call_args_list = [c.args for c in mock_sla.call_args_list]
         assert any(args[1] == incident_sla["id"] for args in call_args_list)
+
+    db_connection.rollback()

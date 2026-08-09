@@ -12,6 +12,7 @@ import logging
 import time
 
 from prometheus_client import REGISTRY, start_http_server
+from psycopg2.extensions import connection
 
 import docker
 
@@ -37,7 +38,9 @@ POLL_INTERVAL_SECONDS = 5
 logger = logging.getLogger(__name__)
 
 
-def dispatch(conn, client, incident: dict, cmdb: dict) -> None:
+def dispatch(
+    conn: connection, client: docker.DockerClient, incident: dict, cmdb: dict
+) -> None:
     """
     Dispatch an incident to its assigned remediation playbook.
 

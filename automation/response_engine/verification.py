@@ -9,10 +9,14 @@ import logging
 
 import requests
 
+from docker import DockerClient
+
 logger = logging.getLogger(__name__)
 
 
-def verify_recovery(client, container_name: str, verification: dict) -> bool:
+def verify_recovery(
+    client: DockerClient, container_name: str, verification: dict
+) -> bool:
     """
     Perform a single recovery verification check according to CMDB policy.
 

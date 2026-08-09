@@ -8,7 +8,7 @@ by service/severity/status (`sentinelops_incidents`) and worker queue depth (`se
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 
 from prometheus_client.core import GaugeMetricFamily
 from prometheus_client.registry import Collector
@@ -24,7 +24,7 @@ class IncidentsCollector(Collector):
     grouped by (service, severity, status).
     """
 
-    def __init__(self, connect: Callable[[], object]):
+    def __init__(self, connect: Callable[[], object]) -> None:
         """
         Initialize collector with a database connection factory.
 
@@ -33,7 +33,7 @@ class IncidentsCollector(Collector):
         """
         self._connect = connect
 
-    def collect(self):
+    def collect(self) -> Generator[GaugeMetricFamily, None, None]:
         """
         Collect sentinelops_incidents gauge metric family.
 
@@ -91,7 +91,7 @@ class QueueDepthCollector(Collector):
     Computed fresh from PostgreSQL on every scrape, same rationale as IncidentsCollector.
     """
 
-    def __init__(self, connect: Callable[[], object]):
+    def __init__(self, connect: Callable[[], object]) -> None:
         """
         Initialize QueueDepthCollector with a database connection factory.
 
@@ -100,7 +100,7 @@ class QueueDepthCollector(Collector):
         """
         self._connect = connect
 
-    def collect(self):
+    def collect(self) -> Generator[GaugeMetricFamily, None, None]:
         """
         Collect sentinelops_queue_depth gauge metric family.
 

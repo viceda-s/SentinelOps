@@ -11,6 +11,7 @@ import logging
 from datetime import datetime, timezone
 
 import psycopg2
+from psycopg2.extensions import connection
 from psycopg2.extras import Json
 
 from .events import get_next_sequence
@@ -26,7 +27,7 @@ TERMINAL_STATES = (
 
 
 def record_note_event(
-    conn,
+    conn: connection,
     incident: dict,
     *,
     actor: str,
@@ -96,7 +97,7 @@ def record_note_event(
 
 
 def ingest_alert(
-    conn,
+    conn: connection,
     alert: dict,
     cmdb: dict,
     source: str,
@@ -250,7 +251,7 @@ def ingest_alert(
     return incident
 
 
-def handle_alert(conn, alert: dict, cmdb: dict) -> None:
+def handle_alert(conn: connection, alert: dict, cmdb: dict) -> None:
     """
     Process a single Alertmanager alert.
 
@@ -331,7 +332,7 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
 
 
 def _apply_webhook_lifecycle_policy(
-    conn,
+    conn: connection,
     incident: dict,
     known_service: bool,
     playbook: str,
@@ -359,7 +360,7 @@ def _apply_webhook_lifecycle_policy(
     return incident
 
 
-def _reconcile_duplicate_alert(conn, alert: dict, fingerprint: str) -> None:
+def _reconcile_duplicate_alert(conn: connection, alert: dict, fingerprint: str) -> None:
     """Handle duplicate Alertmanager notifications for active incidents."""
     conn.rollback()
 
@@ -397,7 +398,9 @@ def _reconcile_duplicate_alert(conn, alert: dict, fingerprint: str) -> None:
     conn.commit()
 
 
-def resolve_cmdb_entry(cmdb: dict, service: str, alert_name: str):
+def resolve_cmdb_entry(
+    cmdb: dict, service: str, alert_name: str
+) -> tuple[str, str, str, str, int, int, bool]:
     """
     Resolve service metadata from the CMDB.
 
@@ -438,7 +441,7 @@ def resolve_cmdb_entry(cmdb: dict, service: str, alert_name: str):
     )
 
 
-def generate_reference(conn) -> str:
+def generate_reference(conn: connection) -> str:
     """Allocate a unique incident reference sequential per UTC year.
 
     Uses PostgreSQL row-level locking. The counter update participates in the caller's transaction.

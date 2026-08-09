@@ -7,10 +7,12 @@ to ensure concurrency safety across worker instances.
 
 from __future__ import annotations
 
+from psycopg2.extensions import connection
+
 from .state_machine import transition
 
 
-def claim_incident(conn) -> dict | None:
+def claim_incident(conn: connection) -> dict | None:
     """
     Claim the oldest unhandled `NEW` incident for remediation.
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 
+from psycopg2.extensions import connection
 from psycopg2.extras import Json
 
 from .events import get_next_sequence
@@ -40,7 +41,7 @@ RETURNING id, reference;
 logger = logging.getLogger(__name__)
 
 
-def _check_one(conn, sql: str, breach_type: str, message: str) -> None:
+def _check_one(conn: connection, sql: str, breach_type: str, message: str) -> None:
     """
     Execute one SLA breach check (response or resolution).
 
@@ -94,7 +95,7 @@ def _check_one(conn, sql: str, breach_type: str, message: str) -> None:
             )
 
 
-def check_sla_breaches(conn) -> None:
+def check_sla_breaches(conn: connection) -> None:
     """
     Flag incidents whose response or resolution SLA has expired.
 

@@ -9,6 +9,8 @@ import json
 import logging
 from datetime import datetime, timezone
 
+from psycopg2.extensions import connection
+
 from .events import get_next_sequence
 from .metrics import (
     INCIDENT_RESOLUTION_SECONDS,
@@ -35,7 +37,9 @@ STATUS_TIMESTAMPS = {
 }
 
 
-def transition(conn, incident: dict, to_status: str, actor: str, message: str) -> dict:
+def transition(
+    conn: connection, incident: dict, to_status: str, actor: str, message: str
+) -> dict:
     """Perform a validated incident state transition.
 
     Args:

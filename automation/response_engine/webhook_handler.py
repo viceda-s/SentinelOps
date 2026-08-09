@@ -37,7 +37,7 @@ cmdb = load_cmdb()
 
 
 @app.post("/alerts")
-def alerts():
+def alerts() -> tuple[str, int] | tuple[Response, int]:
     """
     Receive and process Alertmanager HTTP webhook payloads.
 
@@ -102,7 +102,7 @@ def alerts():
 
 
 @app.get("/metrics")
-def metrics():
+def metrics() -> Response:
     """Expose Prometheus metrics."""
 
     return Response(
