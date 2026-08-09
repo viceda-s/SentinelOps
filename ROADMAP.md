@@ -21,23 +21,22 @@ To maintain clarity across project documentation:
 
 Phase 3 transitions SentinelOps from a validated incident pipeline lab into a production-ready, extensible platform with strong engineering rigor and operational intelligence.
 
+Execution is tracked on GitHub: **[Epic #19](https://github.com/viceda-s/SentinelOps/issues/19)** and the **[SentinelOps: Phase 3](https://github.com/users/viceda-s/projects/3)** project board.
+
+Tier 1 and Tier 2 items are decomposed into leaf task issues. Tier 3 items are deliberately held at item level under `status:planned` until each has its own design spec in `docs/specs/` — a leaf issue is only created once its implementation scope has been architecturally decided.
+
 ### Tier 1 — Engineering Rigor
 
 Focuses on automated testing, static quality gates, and zero-friction repeatability.
 
-* [ ] **Comprehensive GitHub Actions CI Workflow**
-  * Automated linting with `ruff` and unit testing with `pytest`.
-  * Bash static analysis with `shellcheck` across all `automation/scripts/` and container entrypoints.
-  * Structural YAML linting (`yamllint`).
-  * Prometheus rule syntax checking with `promtool check rules`.
-  * Alertmanager config validation with `amtool check-config`.
-  * CMDB configuration schema validation (`validate_cmdb.py`).
-  * Docker Compose build verification.
-* [ ] **Automated E2E Chaos Test Harness** (`tests/integration/test_chaos_e2e.py`)
+* [x] **Comprehensive GitHub Actions CI Workflow** ([#23](https://github.com/viceda-s/SentinelOps/issues/23))
+  * Shipped in `.github/workflows/quality-gate.yml`: `ruff` lint and format checks, `pytest` against an ephemeral PostgreSQL service container, `shellcheck` across `automation/scripts/` and container entrypoints, and configuration validation via `bootstrap.sh --validate-only` (`compose config`, `promtool check rules`, `amtool check-config`, `validate_cmdb.py`, runbook mapping).
+  * Remaining gaps tracked separately: structural YAML linting ([#34](https://github.com/viceda-s/SentinelOps/issues/34)), Docker Compose *build* verification ([#35](https://github.com/viceda-s/SentinelOps/issues/35)), and a gated E2E chaos job ([#36](https://github.com/viceda-s/SentinelOps/issues/36)).
+* [ ] **Automated E2E Chaos Test Harness** (`tests/integration/test_chaos_e2e.py`) — [#24](https://github.com/viceda-s/SentinelOps/issues/24)
   * Programmatic assertion of full incident lifecycles triggered via `chaos.sh`.
   * Verifies `CREATED` $\rightarrow$ `ACKNOWLEDGED` $\rightarrow$ `IN_PROGRESS` $\rightarrow$ `RESOLVED` / `ESCALATED` state transitions.
   * Validates worker claim, automated playbook execution, service recovery verification, SLA metric increments, and PDF report generation.
-* [ ] **Clean-Clone Zero-Friction Verification**
+* [ ] **Clean-Clone Zero-Friction Verification** — [#25](https://github.com/viceda-s/SentinelOps/issues/25)
   * End-to-end verification of `./automation/scripts/bootstrap.sh` on a fresh environment strictly following `README.md`.
 
 ---
@@ -46,17 +45,17 @@ Focuses on automated testing, static quality gates, and zero-friction repeatabil
 
 Establishes fundamental reliability primitives and modular interfaces for platform growth.
 
-* [ ] **Reliability & Tracing Primitives**
+* [ ] **Reliability & Tracing Primitives** — [#26](https://github.com/viceda-s/SentinelOps/issues/26)
   * Introduce `correlation_id` across Alertmanager payloads and internal log context.
   * Introduce `execution_id` tracking individual worker playbook attempts.
   * Formally document and standardize idempotency tokens for webhook delivery and retry safety.
-* [ ] **Generalized Typed Event Model**
+* [ ] **Generalized Typed Event Model** — [#27](https://github.com/viceda-s/SentinelOps/issues/27)
   * Evolve the current append-only `incident_events` audit trail into a generalized typed event model (`IncidentCreated`, `IncidentAcknowledged`, `RemediationStarted`, `RemediationCompleted`, `SLABreached`, `ReportGenerated`).
   * Enables decoupled in-process event consumption for metrics, notifications, and AI analysis.
-* [ ] **Formalized REST API (`/api/v1`)**
+* [ ] **Formalized REST API (`/api/v1`)** — [#28](https://github.com/viceda-s/SentinelOps/issues/28)
   * Formalize and evolve the existing webhook/Flask API (`http://localhost:5001`) into a versioned `/api/v1` interface.
   * Endpoints for incident listing, detail, timeline retrieval, operator lifecycle transitions (`acknowledge`, `resolve`, `close`), and operational metrics.
-* [ ] **Remediation Plugin Registry**
+* [ ] **Remediation Plugin Registry** — [#29](https://github.com/viceda-s/SentinelOps/issues/29)
   * Refactor playbook dispatch logic in `automation/response_engine/remediation/` into a plugin registry (`registry.py`, `base.py`).
   * Supports extensible multi-step playbook execution without modifying core worker dispatch loops.
 
@@ -66,13 +65,13 @@ Establishes fundamental reliability primitives and modular interfaces for platfo
 
 Adds domain intelligence, noise reduction, and AI assistance over operational data.
 
-* [ ] **Alert Correlation & Problem Management**
+* [ ] **Alert Correlation & Problem Management** — [#31](https://github.com/viceda-s/SentinelOps/issues/31)
   * Group related concurrent alert firings (e.g., downstream API failures caused by a PostgreSQL outage) into a unified **Problem** record (`PROBLEM-001`) using CMDB dependency graphs (`dependencies: [postgres]`).
-* [ ] **Operational Analytics & Noise Metrics**
+* [ ] **Operational Analytics & Noise Metrics** — [#30](https://github.com/viceda-s/SentinelOps/issues/30)
   * Track auto-remediation success rate, alert-to-incident conversion, alert noise reduction, repeat incident rate, and SLA compliance metrics.
-* [ ] **Incident Similarity & Historical Pattern Matching**
+* [ ] **Incident Similarity & Historical Pattern Matching** — [#32](https://github.com/viceda-s/SentinelOps/issues/32)
   * Historical similarity matching comparing active incident symptoms against past resolved incidents and RCAs.
-* [ ] **AI Knowledge Assistant (Ops RAG)**
+* [ ] **AI Knowledge Assistant (Ops RAG)** — [#33](https://github.com/viceda-s/SentinelOps/issues/33)
   * Targeted operational RAG assistant over runbooks (`docs/runbooks/`), ADRs (`docs/adr/`), historical RCAs, and incident timelines.
   * Assists operators during incident triage and pre-populates draft Root Cause Analysis (RCA) notes during `./automation/scripts/close_incident.sh`.
 
