@@ -156,10 +156,6 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./diagnostics:/app/diagnostics
-      # Read-only view of the host filesystem so disk_cleanup measures the same
-      # filesystem node-exporter reports on. Read-only: the playbook only ever
-      # calls shutil.disk_usage() against it.
-      - /:/hostfs:ro
     restart: unless-stopped
 
   maintenance-monitor:
