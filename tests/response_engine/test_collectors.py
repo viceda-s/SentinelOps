@@ -14,7 +14,6 @@ def test_incidents_collector_reflects_current_status_counts(
     db_connection,
     make_incident,
 ):
-    """Verify that incidents collector reflects current status counts."""
     make_incident(
         status="NEW",
         service="collector-svc-1",
@@ -32,7 +31,6 @@ def test_incidents_collector_reflects_current_status_counts(
     )
 
     def connect():
-        """Verify that connect."""
         return db_connection
 
     collector = IncidentsCollector(connect)
@@ -63,10 +61,7 @@ def test_queue_depth_collector_counts_only_new(
     db_connection,
     make_incident,
 ):
-    """Verify that queue depth collector counts only new."""
-
     def connect():
-        """Verify that connect."""
         return db_connection
 
     collector = QueueDepthCollector(connect)
@@ -85,10 +80,7 @@ def test_queue_depth_collector_counts_only_new(
 
 
 def test_incidents_collector_omits_metric_on_query_failure(caplog):
-    """Verify that incidents collector omits metric on query failure."""
-
     def connect():
-        """Verify that connect."""
         raise RuntimeError("database unavailable")
 
     collector = IncidentsCollector(connect)

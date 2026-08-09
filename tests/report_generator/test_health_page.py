@@ -28,10 +28,9 @@ def _fake_silences_response(silences: list[dict]):
 
     class FakeResponse:
         def raise_for_status(self):
-            """Verify that raise for status."""
+            pass
 
         def json(self):
-            """Verify that json."""
             return silences
 
     return FakeResponse()
