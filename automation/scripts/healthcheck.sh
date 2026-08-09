@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Deliberately omitting -e (despite project convention) to uphold the
+# "never short-circuit" contract for this script. If a command substitution
+# like `docker compose ps` fails, the script must continue checking the rest.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

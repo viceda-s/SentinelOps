@@ -717,7 +717,7 @@ def disk_cleanup(conn, client, incident: dict, cmdb: dict) -> None:
                 result="failure",
                 error=str(e),
             )
-            transition(
+            incident = transition(
                 conn,
                 incident,
                 "ESCALATED",
