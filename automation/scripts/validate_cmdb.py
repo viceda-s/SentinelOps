@@ -14,9 +14,12 @@ from pathlib import Path
 
 import yaml
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from automation.response_engine.playbooks import IMPLEMENTED_PLAYBOOKS
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 CMDB_PATH = REPO_ROOT / "cmdb" / "services.yaml"
 COMPOSE_PATH = REPO_ROOT / "docker-compose.yml"
 

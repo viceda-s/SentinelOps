@@ -20,6 +20,13 @@ SEVERITY_RANK = {
     "warning": 1,
 }
 
+STATUS_RANK = {
+    "IN_PROGRESS": 0,
+    "ACKNOWLEDGED": 1,
+    "ESCALATED": 2,
+    "NEW": 3,
+}
+
 
 @dataclass
 class HealthPageModel:
@@ -64,6 +71,19 @@ def severity_rank(severity: str) -> int:
         raise ValueError(f"Unknown incident severity: {severity!r}") from exc
 
 
+def status_rank(status: str) -> int:
+    """
+    Return numerical priority rank for incident status strings.
+
+    Args:
+        status: Incident status string.
+
+    Returns:
+        int: Lower integer value represents higher priority.
+    """
+    return STATUS_RANK.get(status, 99)
+
+
 def query_health_state(conn, cmdb: dict) -> HealthPageModel:
     """
     Build the `HealthPageModel` from CMDB metadata, database incidents, and Alertmanager silences.
@@ -81,11 +101,12 @@ def query_health_state(conn, cmdb: dict) -> HealthPageModel:
             SELECT *
             FROM incidents
             WHERE status IN (
-            'NEW',
-            'ACKNOWLEDGED',
-            'IN_PROGRESS',
-            'ESCALATED'
+                'NEW',
+                'ACKNOWLEDGED',
+                'IN_PROGRESS',
+                'ESCALATED'
             )
+            ORDER BY id ASC
             """
         )
         open_incidents = cur.fetchall()
@@ -104,7 +125,8 @@ def query_health_state(conn, cmdb: dict) -> HealthPageModel:
     counts = Counter()
 
     for incident in open_incidents:
-        incident_rank = severity_rank(incident["severity"])
+        incident_sev_rank = severity_rank(incident["severity"])
+        incident_stat_rank = status_rank(incident["status"])
         counts[incident["severity"]] += 1
 
         service = service_index.get(incident["service"])
@@ -116,9 +138,13 @@ def query_health_state(conn, cmdb: dict) -> HealthPageModel:
             service["severity"] = incident["severity"]
             continue
 
-        current_rank = severity_rank(service["severity"])
+        current_sev_rank = severity_rank(service["severity"])
+        current_stat_rank = status_rank(service["status"])
 
-        if incident_rank < current_rank:
+        if incident_sev_rank < current_sev_rank or (
+            incident_sev_rank == current_sev_rank
+            and incident_stat_rank < current_stat_rank
+        ):
             service["status"] = incident["status"]
             service["severity"] = incident["severity"]
 

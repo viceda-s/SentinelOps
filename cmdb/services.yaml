@@ -130,7 +130,7 @@ services:
       type: http
       url: http://maintenance-monitor:8000/metrics
     playbooks:
-      MaintenanceMonitorDown: none
+      MaintenanceMonitorDown: restart_service
     sla:
       response_minutes: 5
       resolution_minutes: 60

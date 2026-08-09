@@ -17,17 +17,17 @@ def test_incidents_collector_reflects_current_status_counts(
     """Verify that incidents collector reflects current status counts."""
     make_incident(
         status="NEW",
-        service="api",
+        service="collector-svc-1",
         severity="critical",
     )
     make_incident(
         status="NEW",
-        service="api",
+        service="collector-svc-1",
         severity="critical",
     )
     make_incident(
         status="ACKNOWLEDGED",
-        service="nginx",
+        service="collector-svc-2",
         severity="warning",
     )
 
@@ -55,8 +55,8 @@ def test_incidents_collector_reflects_current_status_counts(
         for sample in family.samples
     }
 
-    assert samples[("api", "critical", "NEW")] == 2
-    assert samples[("nginx", "warning", "ACKNOWLEDGED")] == 1
+    assert samples[("collector-svc-1", "critical", "NEW")] == 2
+    assert samples[("collector-svc-2", "warning", "ACKNOWLEDGED")] == 1
 
 
 def test_queue_depth_collector_counts_only_new(
@@ -64,21 +64,24 @@ def test_queue_depth_collector_counts_only_new(
     make_incident,
 ):
     """Verify that queue depth collector counts only new."""
-    make_incident(status="NEW")
-    make_incident(status="NEW")
-    make_incident(status="ACKNOWLEDGED")
 
     def connect():
         """Verify that connect."""
         return db_connection
 
     collector = QueueDepthCollector(connect)
+    initial_families = list(collector.collect())
+    initial_depth = initial_families[0].samples[0].value if initial_families else 0
+
+    make_incident(status="NEW")
+    make_incident(status="NEW")
+    make_incident(status="ACKNOWLEDGED")
 
     families = list(collector.collect())
 
     assert len(families) == 1
     assert families[0].name == "sentinelops_queue_depth"
-    assert families[0].samples[0].value == 2
+    assert families[0].samples[0].value - initial_depth == 2
 
 
 def test_incidents_collector_omits_metric_on_query_failure(caplog):

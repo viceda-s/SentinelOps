@@ -70,8 +70,12 @@ class CMDBSettings:
 
     @classmethod
     def from_env(cls) -> CMDBSettings:
+        repo_cmdb = Path(__file__).resolve().parents[2] / "cmdb" / "services.yaml"
+        default_path = (
+            str(repo_cmdb) if repo_cmdb.exists() else "/app/cmdb/services.yaml"
+        )
         return cls(
-            path=os.getenv("CMDB_PATH", "/app/cmdb/services.yaml"),
+            path=os.getenv("CMDB_PATH", default_path),
         )
 
 
