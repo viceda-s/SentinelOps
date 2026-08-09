@@ -3,8 +3,8 @@
 **Enterprise Incident Response & Operations Lab**
 
 Author: Vicente Coelho
-Last updated: 2026-08-02
-Status: v1.1, reconciled post-Phase 1
+Last updated: 2026-08-09
+Status: v2.0, reconciled post-Phase 2
 
 ---
 
@@ -574,11 +574,11 @@ Logging and config validation are in Phase 1 because they're conventions rather 
 
 **Done when:** `chaos.sh stop api` produces an incident that gets detected, enriched from the CMDB, acknowledged, restarted, verified, and resolved without me touching anything; the timeline shows every step with timestamps; every log line from that incident is valid JSON with the incident reference; `bootstrap.sh --validate-only` catches a CMDB entry I've deliberately broken; and I've killed each container in turn to check the failure-independence rule holds.
 
-### Phase 2 — the operational layer
+### Phase 2 — the operational layer (Complete)
 
 Maintenance windows, engine `/metrics`, SLA fields and breach calculation, MTTR dashboard, health page, PDF reports, `disk_cleanup`, `backup.sh`, `maintenance.sh`, `healthcheck.sh`, the remaining runbooks and ADRs, self-monitoring alerts.
 
-**Done when:** closing an incident produces a PDF with real diagnostic evidence and an RCA I've written, and Grafana shows MTTR calculated from actual incidents.
+**Done when:** closing an incident produces a PDF with real diagnostic evidence and an RCA I've written, and Grafana shows MTTR calculated from actual incidents. (Completed & Verified).
 
 ### Phase 3 — finishing
 
@@ -597,3 +597,5 @@ Notifications, cloud deployment, Ansible, Loki, alert correlation. These stay in
 I froze this at v1.0 before starting Phase 1. I'll update it if building reveals something that genuinely can't work as designed — not because I've thought of something else I'd like to add. Those go in the roadmap. If I do change a recorded decision, it gets a note in CHANGELOG.md and an ADR.
 
 This is the v1.1 reconciliation pass: ten discrepancies between this document and the implemented system, discovered and recorded during Phase 1 in `docs/implementation-findings.md`, were folded back into the relevant sections above in one batched update, per the policy stated in the paragraph above. See `CHANGELOG.md` for a summary of what changed. One finding (CMDB-driven recovery verification) was already adequately covered by ADR-008, so no new ADR was needed for this pass.
+
+This is the Phase 2 reconciliation pass (2026-08-09): three Phase 2 discrepancies/clarifications (findings 11, 12, and 13 covering Alertmanager silence maintenance suppression, asynchronous SLA breach evaluation with `clock_timestamp()`, and decoupled report generation) were recorded in `docs/implementation-findings.md`, reconciled into project documentation, and formalized as ADRs 009, 010, and 011 alongside new Phase 2 operational runbooks.

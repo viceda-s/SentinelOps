@@ -1,3 +1,10 @@
+"""
+Prometheus metrics definitions for SentinelOps.
+
+Defines counters, gauges, and histograms for tracking incident creation, remediation
+attempts, SLA breaches, maintenance suppression, heartbeats, and MTTR durations.
+"""
+
 from __future__ import annotations
 
 from prometheus_client import Counter, Gauge, Histogram

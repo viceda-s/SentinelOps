@@ -1,3 +1,11 @@
+"""
+SLA breach detection module for SentinelOps.
+
+Asynchronously monitors open incidents against target response and resolution windows
+using PostgreSQL `clock_timestamp()` duration checks, updates breach flags, and records
+audit note events and Prometheus metrics.
+"""
+
 from __future__ import annotations
 
 import logging

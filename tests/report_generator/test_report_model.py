@@ -13,6 +13,9 @@ from automation.report_generator.report_model import (
 def test_build_report_model_diagnostics_unavailable_when_not_collected(
     db_connection, make_incident
 ):
+    """
+    Verify that report model sets diagnostics to None when no diagnostics playbook ran.
+    """
     incident = make_incident(
         status="CLOSED",
         root_cause_analysis=("Log rotation misconfiguration."),
@@ -42,6 +45,9 @@ def test_build_report_model_diagnostics_unavailable_when_not_collected(
 def test_build_report_model_diagnostics_file_missing_on_disk(
     db_connection, make_incident, tmp_path
 ):
+    """
+    Verify that report model handles missing diagnostics files on disk gracefully.
+    """
     incident = make_incident(
         status="CLOSED",
         root_cause_analysis=("Disk pressure."),
@@ -88,6 +94,9 @@ def test_build_report_model_diagnostics_file_missing_on_disk(
 def test_build_report_model_includes_diagnostics_when_collected(
     db_connection, make_incident, tmp_path
 ):
+    """
+    Verify that report model parses and includes diagnostics JSON when present on disk.
+    """
     incident = make_incident(
         status="CLOSED",
         root_cause_analysis=("Disk pressure."),
@@ -138,6 +147,9 @@ def test_build_report_model_includes_diagnostics_when_collected(
 
 
 def test_build_report_model_includes_timeline(db_connection, make_incident):
+    """
+    Verify that build_report_model includes the timeline entry list for an incident.
+    """
     incident = make_incident(
         status="CLOSED",
         root_cause_analysis=("RCA text."),
@@ -151,6 +163,9 @@ def test_build_report_model_includes_timeline(db_connection, make_incident):
 
 
 def test_build_report_model_pending_rca_when_null(db_connection, make_incident):
+    """
+    Verify that build_report_model handles NULL root cause analysis fields.
+    """
     incident = make_incident(status="RESOLVED")
 
     with db_connection.cursor() as cur:

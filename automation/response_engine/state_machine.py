@@ -1,3 +1,10 @@
+"""
+Incident state machine implementation for SentinelOps.
+
+Enforces valid lifecycle state transitions, updates database timestamp columns,
+appends audit records to `incident_events`, and records Prometheus duration metrics.
+"""
+
 import json
 import logging
 from datetime import datetime, timezone
@@ -11,12 +18,6 @@ logger = logging.getLogger(__name__)
 
 # NEW -> ESCALATED (in addition to DESIGN.md v1.0's NEW -> ACKNOWLEDGED | SUPPRESSED_MAINTENANCE) is a deliberate deviation from the frozen design, not an oversight. An unknown service (not in the CMDB) has to escalate straight out of enrichment, before any worker has claimed it -- see implementation-findings.md. Faking an ACKNOWLEDGED event to satisfy the original table would misrepresent the audit trail, since ACKNOWLEDGED specifically means "claimed by a worker."
 
-#
-# SUPPRESSED_MAINTENANCE is reserved for the Phase 2 maintenance-window feature.
-# No Phase 1 code path currently enters this state.
-#
-# SUPPRESSED_MAINTENANCE -> RESOLVED is its only legal exit. Nothing currently calls it automatically -- no code path observes an Alertmanager alert recovering and resolves the matching incident. Until that exists, an incident that enters this state stays here until an operator resolves it by hand.
-#
 ALLOWED_TRANSITIONS = {
     "NEW": {"ACKNOWLEDGED", "SUPPRESSED_MAINTENANCE", "ESCALATED"},
     "ACKNOWLEDGED": {"IN_PROGRESS", "ESCALATED"},
@@ -33,16 +34,26 @@ STATUS_TIMESTAMPS = {
 }
 
 
-def transition(conn, incident, to_status, actor, message):
+def transition(conn, incident: dict, to_status: str, actor: str, message: str) -> dict:
     """
     Perform a validated incident state transition.
 
-    The caller owns the transaction.
-    This function MUST NOT call commit() or rollback().
+    Args:
+        conn: Active PostgreSQL connection (caller manages transactions).
+            Must be opened with cursor_factory=psycopg2.extras.RealDictCursor.
+        incident: Incident record dictionary.
+        to_status: Target status name string.
+        actor: Identity of actor triggering transition (e.g. 'worker', 'operator').
+        message: Audit log description for the transition.
 
-    conn must be opened with cursor_factory=psycopg2.extras.RealDictCursor —
-    incident is expected to support dict-style access (incident["status"]),
-    and this function's own queries rely on the same convention.
+    Returns:
+        Updated in-memory incident dictionary.
+
+    Raises:
+        ValueError: If the requested state transition is not allowed by ALLOWED_TRANSITIONS.
+
+    Notes:
+        The caller owns the transaction. This function MUST NOT call commit() or rollback().
     """
 
     current_status = incident["status"]

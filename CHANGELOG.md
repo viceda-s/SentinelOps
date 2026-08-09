@@ -4,6 +4,20 @@ All notable changes to SentinelOps's design are recorded here. This
 tracks changes to `docs/DESIGN.md`'s recorded decisions, not every commit
 — see git history for full implementation detail.
 
+## [2.0] - 2026-08-09
+
+### Added
+
+- Shipped Phase 2 operational runbooks: `maintenance-windows.md`, `incident-closure-and-reports.md`, `backup-and-disaster-recovery.md`, `disk-cleanup.md`.
+- Added Architecture Decision Records ADR-009 (Maintenance Window Alertmanager Suppression), ADR-010 (SLA Breach Calculation and Metrics), and ADR-011 (Decoupled Report Generation and Health Dashboard).
+- Recorded Phase 2 implementation findings 11–13 in `docs/implementation-findings.md` covering maintenance deduplication, `clock_timestamp()` SLA intervals, and atomic health page file publication.
+- Performed a repository-wide Python docstring and comment audit establishing PEP 257 Google-style docstrings and explaining critical code invariants without altering application logic.
+
+### Changed
+
+- Updated `README.md` and `docs/DESIGN.md` to reflect Phase 2 completion.
+- Reconciled `docs/adr/README.md` index table with Phase 2 ADR additions.
+
 ## [1.1] - 2026-08-05
 
 ### Changed

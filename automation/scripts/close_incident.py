@@ -1,3 +1,10 @@
+"""
+CLI tool and helper functions for closing resolved SentinelOps incidents.
+
+Acquires row-level locking (`FOR UPDATE`) on the target incident, records Root Cause
+Analysis (RCA) text, and transitions incident status to `CLOSED`.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -10,11 +17,21 @@ from psycopg2.extras import RealDictCursor
 from automation.response_engine.state_machine import transition
 
 
-def find_incident_by_reference(conn, reference):
+def find_incident_by_reference(conn, reference: str) -> dict | None:
     """
-    Look up an incident by its human-readable reference.
+    Look up an incident by its human-readable reference string with row locking.
 
-    The caller owns the transaction.
+    Acquires an exclusive row lock (`FOR UPDATE`) to prevent concurrent state modifications.
+
+    Args:
+        conn: Active PostgreSQL connection.
+        reference: Incident reference string (e.g. 'INC-2026-0001').
+
+    Returns:
+        dict | None: Incident row dictionary if found, or None.
+
+    Notes:
+        The caller owns the transaction.
     """
 
     with conn.cursor() as cur:
@@ -31,12 +48,23 @@ def find_incident_by_reference(conn, reference):
         return cur.fetchone()
 
 
-def close_incident(conn, reference, rca_text):
+def close_incident(conn, reference: str, rca_text: str) -> dict:
     """
-    Close a resolved incident.
+    Close a resolved incident and persist its Root Cause Analysis text.
 
-    The caller owns the transaction.
-    This function MUST NOT call commit() or rollback()
+    Args:
+        conn: Active PostgreSQL connection.
+        reference: Incident reference string.
+        rca_text: Non-empty Root Cause Analysis text.
+
+    Returns:
+        dict: Updated incident dictionary in `CLOSED` state.
+
+    Raises:
+        ValueError: If the incident is not found or is not in `RESOLVED` status.
+
+    Notes:
+        The caller owns the transaction. This function MUST NOT call commit() or rollback().
     """
 
     incident = find_incident_by_reference(conn, reference)
@@ -68,6 +96,9 @@ def close_incident(conn, reference, rca_text):
 
 
 def main() -> None:
+    """
+    Execute incident closure CLI entry point.
+    """
     parser = argparse.ArgumentParser(
         description="Close a resolved incident and record its RCA."
     )

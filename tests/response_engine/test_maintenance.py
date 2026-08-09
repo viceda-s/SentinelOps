@@ -21,6 +21,7 @@ from tests.response_engine.helpers import (
 
 @patch("automation.response_engine.maintenance.requests.get")
 def test_fetch_suppressed_alerts_sorts_by_starts_at(mock_get):
+    """Verify that fetch suppressed alerts sorts by starts at."""
     response = Mock()
     response.raise_for_status.return_value = None
     response.json.return_value = [
@@ -51,6 +52,7 @@ def test_fetch_suppressed_alerts_sorts_chronologically_not_lexicographically(moc
     # have different sub-second precision. "10:00:00.5Z" is chronologically
     # after "10:00:00Z", but sorts before it as a raw string, since "." is
     # less than "Z" in ASCII.
+    """Verify that fetch suppressed alerts sorts chronologically not lexicographically."""
     response = Mock()
     response.raise_for_status.return_value = None
     response.json.return_value = [
@@ -76,6 +78,7 @@ def test_fetch_suppressed_alerts_sorts_chronologically_not_lexicographically(moc
 
 @patch("automation.response_engine.maintenance.requests.get")
 def test_fetch_suppressed_alerts_propagates_request_failures(mock_get):
+    """Verify that fetch suppressed alerts propagates request failures."""
     mock_get.side_effect = requests.exceptions.RequestException("boom")
 
     try:
@@ -90,6 +93,7 @@ def test_process_suppressed_alert_creates_suppressed_incident(
     db_connection,
     committed_incident_cleanup,
 ):
+    """Verify that process suppressed alert creates suppressed incident."""
     alert = _firing_alert()
 
     before = counter_value(SUPPRESSED_INCIDENTS_CREATED_TOTAL)
@@ -114,6 +118,7 @@ def test_process_suppressed_alert_deduplicates(
     db_connection,
     committed_incident_cleanup,
 ):
+    """Verify that process suppressed alert deduplicates."""
     alert = _firing_alert()
 
     first = process_suppressed_alert(
@@ -156,6 +161,7 @@ def test_process_suppressed_alert_records_created_event_from_maintenance(
     db_connection,
     committed_incident_cleanup,
 ):
+    """Verify that process suppressed alert records created event from maintenance."""
     alert = _firing_alert()
 
     incident = process_suppressed_alert(
@@ -195,6 +201,7 @@ def test_process_suppressed_alert_notes_existing_actionable_incident_without_sup
     # up suppressed. Before this fix, ingest_alert()'s UniqueViolation
     # propagated uncaught out of process_suppressed_alert() every poll,
     # forever, and the incident was never touched at all.
+    """Verify that process suppressed alert notes existing actionable incident without suppressing it."""
     alert = _suppressed_alert("sil-test")
 
     actionable_incident = make_incident(
@@ -261,6 +268,7 @@ def test_process_suppressed_alert_still_dedups_after_intervening_event(
     # rejected because any intervening event re-enables it. Dedup keys on the
     # silence identity, not timeline position, so an unrelated event landing
     # in between must not produce a second NOTE.
+    """Verify that process suppressed alert still dedups after intervening event."""
     alert = _suppressed_alert("sil-test")
 
     actionable_incident = make_incident(
@@ -311,6 +319,7 @@ def test_process_suppressed_alert_notes_new_silence_for_same_service(
 ):
     # Ending and restarting a maintenance window produces a new Alertmanager
     # silence id, which is a new operator action and gets its own NOTE.
+    """Verify that process suppressed alert notes new silence for same service."""
     first_alert = _suppressed_alert("sil-first")
 
     actionable_incident = make_incident(
@@ -358,6 +367,7 @@ def test_process_suppressed_alert_notes_each_silence_once(
     # An alert can be covered by several silences at once (status.silencedBy is
     # a list). Each silence is an independent operator action and gets its own
     # NOTE, deduplicated independently.
+    """Verify that process suppressed alert notes each silence once."""
     alert = _suppressed_alert("sil-a", "sil-b")
 
     actionable_incident = make_incident(
@@ -398,6 +408,7 @@ def test_process_suppressed_alert_skips_note_when_silenced_by_empty(
     # poll reading it, leaving silencedBy empty. With no silence id there is no
     # identity to deduplicate on, so recording a NOTE would reintroduce
     # unbounded per-poll noise. Treated as a transient race: skip, don't crash.
+    """Verify that process suppressed alert skips note when silenced by empty."""
     alert = _suppressed_alert()
 
     actionable_incident = make_incident(
@@ -445,6 +456,7 @@ def test_process_suppressed_alert_reconciles_duplicate_suppressed_incident_race(
     # the "loser" of a real race would observe. It must reconcile via
     # find_suppressed_incident() rather than letting UniqueViolation
     # propagate uncaught.
+    """Verify that process suppressed alert reconciles duplicate suppressed incident race."""
     alert = _firing_alert()
 
     winner = process_suppressed_alert(db_connection, alert, CMDB)
@@ -497,6 +509,7 @@ def test_process_suppressed_alert_raises_when_unique_violation_is_unexplained(
     # (both lookups race-losing against a rollback, or a genuinely
     # different constraint fires), that's not a case to silently swallow --
     # it means the uniqueness assumptions have drifted from the schema.
+    """Verify that process suppressed alert raises when unique violation is unexplained."""
     alert = _firing_alert()
 
     with (
@@ -536,6 +549,7 @@ def test_process_suppressed_alert_propagates_non_silence_unique_violations(
     # computes its sequence with a racy COALESCE(MAX(sequence), 0) + 1, so
     # incident_events_incident_id_sequence_key can genuinely fire here.
     # Swallowing it would silently discard a NOTE and report success.
+    """Verify that process suppressed alert propagates non silence unique violations."""
     alert = _suppressed_alert("sil-abc")
 
     actionable_incident = make_incident(

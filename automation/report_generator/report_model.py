@@ -1,3 +1,10 @@
+"""
+Report model data structures and builders for SentinelOps incident reports.
+
+Assembles incident metadata, chronological timeline entries, and diagnostic JSON payloads
+into structured `ReportModel` instances for PDF generation.
+"""
+
 from __future__ import annotations
 
 import json
@@ -19,6 +26,16 @@ DIAGNOSTICS_UNAVAILABLE_REASON = (
 
 @dataclass(slots=True)
 class ReportModel:
+    """
+    Data model representing a complete incident report for PDF generation.
+
+    Attributes:
+        incident: Incident row dictionary from database.
+        timeline: List of chronological `TimelineEntry` objects.
+        diagnostics: Parsed diagnostics JSON dictionary, or None if unavailable.
+        diagnostics_unavailable_reason: Human-readable reason string if diagnostics is None.
+    """
+
     incident: dict[str, Any]
     timeline: list[TimelineEntry]
     diagnostics: dict[str, Any] | None
@@ -26,6 +43,9 @@ class ReportModel:
 
 
 def _find_diagnostics_path(conn, incident_id: int) -> str | None:
+    """
+    Query database for the most recent diagnostics_path for an incident.
+    """
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -45,6 +65,22 @@ def _find_diagnostics_path(conn, incident_id: int) -> str | None:
 
 
 def build_report_model(conn, incident_id: int) -> ReportModel:
+    """
+    Build a complete `ReportModel` instance for a given incident ID.
+
+    Queries incident details, constructs the unified timeline from `incident_events` and
+    `remediation_attempts`, and loads diagnostic JSON payloads if available.
+
+    Args:
+        conn: Active PostgreSQL connection with RealDictCursor.
+        incident_id: Database integer primary key of the incident.
+
+    Returns:
+        ReportModel: Assembled report model dataclass.
+
+    Raises:
+        ValueError: If no incident matching incident_id exists in the database.
+    """
     with conn.cursor() as cur:
         cur.execute(
             """

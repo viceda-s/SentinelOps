@@ -16,6 +16,7 @@ def isolate_repository_checks(monkeypatch):
 
 
 def make_service(playbook: str) -> dict:
+    """Verify that make service."""
     return {
         "container_name": "api",
         "owner": "platform-team",
@@ -36,6 +37,7 @@ def make_service(playbook: str) -> dict:
 
 
 def test_validate_accepts_none_playbook():
+    """Verify that validate accepts none playbook."""
     cmdb = {
         "services": {
             "api": make_service("none"),
@@ -48,6 +50,7 @@ def test_validate_accepts_none_playbook():
 
 
 def test_validate_rejects_unknown_playbook():
+    """Verify that validate rejects unknown playbook."""
     cmdb = {
         "services": {
             "api": make_service("definitely_not_a_real_playbook"),

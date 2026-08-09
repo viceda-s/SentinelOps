@@ -22,6 +22,7 @@ CMDB = {
 
 
 def _firing_alert() -> dict:
+    """Verify that firing alert."""
     return {
         "status": "firing",
         "fingerprint": str(uuid4()),

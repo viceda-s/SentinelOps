@@ -10,5 +10,8 @@
 | 006 | *Reserved — root cause analysis stays manual (see DESIGN.md's decision table)* |
 | 007 | *Reserved — YAML CMDB, not a database (see DESIGN.md's decision table)* |
 | [008](008-autonomous-remediation-with-bounded-verification.md) | Autonomous remediation with bounded verification |
+| [009](009-maintenance-window-alertmanager-suppression.md) | Maintenance window Alertmanager suppression |
+| [010](010-sla-breach-calculation-and-metrics.md) | SLA breach calculation and metrics |
+| [011](011-decoupled-report-generation-and-health-dashboard.md) | Decoupled report generation and health dashboard |
 
-Numbers 002, 006, and 007 correspond to decisions already made and recorded in `docs/DESIGN.md`'s decision table, but not yet written up as standalone ADRs — not a gap in the numbering, just not due yet. They cover decisions for features (maintenance windows, RCA tooling, CMDB storage) that Phase 1 doesn't build.
+Numbers 002, 006, and 007 correspond to decisions originally recorded in `docs/DESIGN.md`'s decision table and subsequently addressed in Phase 2 via ADRs 009 (Alertmanager silences), 010 (SLA tracking), and 011 (reporting service).

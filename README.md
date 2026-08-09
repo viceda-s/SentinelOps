@@ -10,31 +10,36 @@ The project was built to explore how production incident response systems coordi
 
 # Current Status
 
-**Phase 1 is complete and fully verified against real infrastructure.** Phase 2 ("the operational layer") is in progress; operational visibility (issue #4) and incident reporting (issue #5) are both complete and merged.
+**Phase 1 and Phase 2 are complete, with no regressions introduced by the Phase 2 documentation pass.**
 
 The complete autonomous incident pipeline has been implemented and validated:
 
 > detect → enrich → acknowledge → remediate → verify → resolve (or escalate) → audit
 
-Phase 1 includes:
+Phase 1 core infrastructure includes:
 
 * Prometheus, Alertmanager, and Grafana
 * CMDB-driven incident enrichment
 * PostgreSQL-backed incident management
 * Independent webhook ingestion and remediation services
 * Explicit incident state machine
-* Autonomous remediation playbooks
+* Autonomous remediation playbooks (`restart_service`, `collect_diagnostics`)
 * Service-specific recovery verification
 * Structured JSON logging
 * Bootstrap, teardown, and chaos tooling
 * CMDB validation
-* Operational runbooks
-* Architecture Decision Records (ADRs)
+* Operational runbooks and Architecture Decision Records (ADRs)
 
-**Phase 2** extends the platform with an operational layer: SLA tracking,
-self-monitoring, and `/metrics` endpoints (issue #4), plus a live health
-page, PDF incident reports, and an operator workflow for closing incidents
-with a manual Root Cause Analysis (RCA) (issue #5).
+**Phase 2** operational layer extends the platform with:
+
+* Maintenance windows and Alertmanager silence suppression (`automation/scripts/maintenance.sh`, `docker/maintenance-monitor/`)
+* Incident SLA tracking, breach calculations, and MTTR Prometheus metrics (`automation/response_engine/sla.py`, `metrics.py`)
+* Automated disk cleanup remediation playbook (`disk_cleanup` in `remediation.py`)
+* Dedicated report generator service (`docker/report-generator/`) producing live health dashboards (`/health/`) and formal PDF incident reports (`/reports/`)
+* Operator incident closure CLI with Root Cause Analysis (`automation/scripts/close_incident.sh`)
+* Automated PostgreSQL database & Grafana configuration backups with retention pruning (`automation/scripts/backup.sh`)
+* Operational runbooks (`maintenance-windows.md`, `incident-closure-and-reports.md`, `backup-and-disaster-recovery.md`, `disk-cleanup.md`)
+* Architecture Decision Records 009, 010, and 011
 
 Future phases focus on extending the platform rather than completing the core incident response workflow.
 
@@ -339,11 +344,7 @@ These trade-offs are appropriate for a learning environment but would be replace
 
 # Future Work
 
-Phase 1 establishes the complete autonomous incident response loop. Future phases extend the platform with additional operational capabilities rather than changing its core architecture. Phase 2 operational visibility (SLA tracking, self-monitoring, `/metrics`) and incident reporting (health page, PDF reports, RCA workflow) are complete — see Features above.
-
-### Incident Management
-
-* Maintenance windows
+Phase 1 and Phase 2 establish the complete autonomous incident response and operational layer. Future phases extend the platform with additional operational capabilities rather than changing its core architecture.
 
 ### Automation
 

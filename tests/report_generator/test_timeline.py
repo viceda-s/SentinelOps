@@ -9,6 +9,9 @@ def test_build_timeline_merges_in_chronological_order(
     db_connection,
     make_incident,
 ):
+    """
+    Verify that build_timeline merges events and attempts in chronological order.
+    """
     incident = make_incident(status="IN_PROGRESS")
     base = datetime.now(timezone.utc)
 
@@ -80,6 +83,9 @@ def test_build_timeline_breaks_simultaneous_tie_events_before_attempts(
     db_connection,
     make_incident,
 ):
+    """
+    Verify that build_timeline breaks timestamp ties by placing events before attempts.
+    """
     incident = make_incident(status="IN_PROGRESS")
     same_instant = datetime.now(timezone.utc)
 
@@ -133,6 +139,9 @@ def test_build_timeline_breaks_tie_among_events_by_sequence(
     db_connection,
     make_incident,
 ):
+    """
+    Verify that build_timeline orders simultaneous events by sequence number.
+    """
     incident = make_incident(status="IN_PROGRESS")
     same_instant = datetime.now(timezone.utc)
 
@@ -180,6 +189,9 @@ def test_build_timeline_breaks_tie_among_attempts_by_attempt_number(
     db_connection,
     make_incident,
 ):
+    """
+    Verify that build_timeline orders simultaneous attempts by attempt_number.
+    """
     incident = make_incident(status="IN_PROGRESS")
     same_instant = datetime.now(timezone.utc)
 
@@ -223,6 +235,9 @@ def test_build_timeline_empty_for_incident_with_no_activity(
     db_connection,
     make_incident,
 ):
+    """
+    Verify that build_timeline returns an empty list for incidents with no events or attempts.
+    """
     incident = make_incident(status="NEW")
 
     assert build_timeline(db_connection, incident["id"]) == []

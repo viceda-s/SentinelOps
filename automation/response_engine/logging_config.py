@@ -1,3 +1,10 @@
+"""
+Structured JSON logging configuration for SentinelOps.
+
+Formats log records into single-line JSON objects with standardized timestamps,
+log levels, logger names, incident references, and contextual metadata.
+"""
+
 from __future__ import annotations
 
 import json
@@ -32,10 +39,19 @@ STANDARD_LOG_RECORD_FIELDS = {
 
 class JsonFormatter(logging.Formatter):
     """
-    Format every log record as one JSON object per line.
+    Formatter that converts standard Python `LogRecord` instances into single-line JSON objects.
     """
 
     def format(self, record: logging.LogRecord) -> str:
+        """
+        Format a LogRecord as a single-line JSON string.
+
+        Args:
+            record: The logging.LogRecord instance to format.
+
+        Returns:
+            str: JSON formatted log line string.
+        """
         payload = {
             "timestamp": datetime.fromtimestamp(
                 record.created,

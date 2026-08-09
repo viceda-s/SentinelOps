@@ -1,3 +1,10 @@
+"""
+Sample API microservice application for SentinelOps monitored estate.
+
+Exposes Flask HTTP endpoints for health probes (`/health`), item retrieval (`/items`),
+and Prometheus metrics (`/metrics`).
+"""
+
 import os
 import time
 
@@ -66,6 +73,9 @@ def record_metrics(endpoint: str, status_code: int, start_time: float):
 
 @app.route("/health")
 def health():
+    """
+    Expose health probe endpoint for the API service and its PostgreSQL connection.
+    """
     start = time.perf_counter()
 
     try:
@@ -103,6 +113,9 @@ def health():
 
 @app.route("/items")
 def items():
+    """
+    Expose items database query endpoint.
+    """
     start = time.perf_counter()
 
     try:
@@ -148,6 +161,9 @@ def items():
 
 @app.route("/metrics")
 def metrics():
+    """
+    Expose Prometheus metrics endpoint for the API service.
+    """
     return (
         generate_latest(),
         200,

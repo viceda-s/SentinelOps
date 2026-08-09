@@ -1,3 +1,10 @@
+"""
+Timeline compilation module for SentinelOps incident reports.
+
+Merges `incident_events` audit entries and `remediation_attempts` execution records into a
+deterministically sorted chronological sequence.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,6 +14,16 @@ from typing import Any, Literal
 
 @dataclass(slots=True)
 class TimelineEntry:
+    """
+    Unified entry in an incident's chronological timeline.
+
+    Attributes:
+        occurred_at: Timestamp when the event or attempt occurred.
+        kind: 'event' for incident_events rows, 'remediation_attempt' for remediation_attempts rows.
+        sort_key: Deterministic 3-tuple (timestamp, kind_priority, sequence_or_attempt_number).
+        payload: Row dictionary containing event/attempt metadata.
+    """
+
     occurred_at: datetime
     kind: Literal["event", "remediation_attempt"]
     sort_key: tuple[datetime, int, int]

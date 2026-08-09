@@ -1,3 +1,10 @@
+"""
+Alert and incident ingestion handlers for SentinelOps.
+
+Handles parsing Alertmanager webhook payloads, CMDB enrichment, incident reference allocation,
+timeline note event recording, and initial lifecycle transitions.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -29,22 +36,22 @@ def record_note_event(
     """
     Append a NOTE event to an incident's timeline.
 
-    Used to record a duplicate or otherwise-informational Alertmanager
-    notification against an incident that already exists, without
-    changing the incident's status.
+    Args:
+        conn: Active PostgreSQL connection (caller manages transactions).
+        incident: Incident dictionary record.
+        actor: Identity string of the actor creating the note.
+        message: Descriptive message string for the note event.
+        payload: Optional dictionary payload attached to the note.
+        silence_id: Optional Alertmanager silence ID. When provided, the
+            `incident_events_maintenance_silence_idx` partial unique constraint
+            guarantees at most one note per (incident, silence).
 
-    Deliberately narrow: computes the next sequence and inserts the event,
-    nothing else. Callers own finding the right incident, deciding whether
-    a NOTE is the right response, and what the message should say.
+    Raises:
+        psycopg2.errors.UniqueViolation: If silence_id is specified and a note for
+            that silence_id has already been recorded on this incident.
 
-    silence_id optionally records the Alertmanager silence this NOTE is about.
-    When set, incident_events_maintenance_silence_idx guarantees at most one
-    such NOTE per (incident, silence) and raises UniqueViolation on a repeat.
-    Callers decide whether that violation means "already recorded" or is a
-    genuine error -- this function does not catch it.
-
-    The caller owns the transaction. This function MUST NOT call commit()
-    or rollback().
+    Notes:
+        The caller owns the transaction. This function MUST NOT call commit() or rollback().
     """
 
     if payload is None:
@@ -267,7 +274,7 @@ def handle_alert(conn, alert: dict, cmdb: dict) -> None:
     """
 
     #
-    # Phase 1 only processes firing alerts.
+    # The webhook handler only processes firing alerts; non-firing notifications are ignored.
     #
 
     if alert.get("status") != "firing":
