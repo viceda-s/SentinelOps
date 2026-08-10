@@ -4,7 +4,7 @@
 
 ## Context
 
-Phase 2 required supporting scheduled maintenance windows for monitored services. During maintenance, scheduled interventions (upgrades, configuration changes, or restarts) trigger alerts like `ServiceDown` or `HighCPU`. These alerts must not trigger active notifications, dispatch remediation playbooks, or escalate to human operators.
+Phase 1.2 required supporting scheduled maintenance windows for monitored services. During maintenance, scheduled interventions (upgrades, configuration changes, or restarts) trigger alerts like `ServiceDown` or `HighCPU`. These alerts must not trigger active notifications, dispatch remediation playbooks, or escalate to human operators.
 
 At the same time, suppressed alerts must not be discarded completely: operators require visibility into all firing alerts, and maintenance events must be recorded in the system of record (`incidents`) for auditing and SLA calculations.
 

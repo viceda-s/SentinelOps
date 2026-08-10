@@ -23,7 +23,7 @@ The two services communicate only through durable state stored in PostgreSQL. Ne
 ## Alternatives considered
 
 - **Single process with background threads.** Rejected because webhook handling and remediation would still share the same process, resource limits, and failure domain. It would also require exposing the Docker socket to the webhook-facing process.
-- **Single process using `asyncio`.** Rejected because it preserves the same architectural coupling while introducing unnecessary complexity, including replacing the synchronous PostgreSQL access layer with an asynchronous one, without providing meaningful benefit for Phase 1.
+- **Single process using `asyncio`.** Rejected because it preserves the same architectural coupling while introducing unnecessary complexity, including replacing the synchronous PostgreSQL access layer with an asynchronous one, without providing meaningful benefit for Phase 1.1.
 
 ## Consequences
 

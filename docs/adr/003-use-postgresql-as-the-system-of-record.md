@@ -33,7 +33,7 @@ PostgreSQL is the only coordination mechanism between the webhook handler and th
 
 - **SQLite.** Rejected because it does not provide the concurrency model needed for multiple workers and is unsuitable as the long-term coordination point for the system.
 
-- **Redis or RabbitMQ plus PostgreSQL.** Rejected because it introduces an additional service while PostgreSQL already provides durable storage, transactions, and safe work claiming. A separate queue would duplicate infrastructure without providing sufficient benefit for Phase 1.
+- **Redis or RabbitMQ plus PostgreSQL.** Rejected because it introduces an additional service while PostgreSQL already provides durable storage, transactions, and safe work claiming. A separate queue would duplicate infrastructure without providing sufficient benefit for Phase 1.1.
 
 - **In-memory queue.** Rejected because queued work would be lost on process restart and webhook ingestion could no longer be decoupled safely from remediation.
 

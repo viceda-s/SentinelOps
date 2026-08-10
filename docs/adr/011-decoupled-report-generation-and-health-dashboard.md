@@ -4,7 +4,7 @@
 
 ## Context
 
-Phase 2 introduced two operational reporting requirements:
+Phase 1.2 introduced two operational reporting requirements:
 1. A live system health dashboard displaying service status, active maintenance windows, and open incidents.
 2. Formal PDF incident reports generated automatically upon incident closure for auditing and post-mortem analysis.
 
