@@ -58,6 +58,11 @@ Establishes fundamental reliability primitives and modular interfaces for platfo
 * [ ] **Remediation Plugin Registry** — [#29](https://github.com/viceda-s/SentinelOps/issues/29)
   * Refactor playbook dispatch logic in `automation/response_engine/remediation/` into a plugin registry (`registry.py`, `base.py`).
   * Supports extensible multi-step playbook execution without modifying core worker dispatch loops.
+* [ ] **Configurable Remediation Bounds & Blast-Radius Controls** — [#43](https://github.com/viceda-s/SentinelOps/issues/43)
+  * **Externalize existing timing constants.** `VERIFY_TIMEOUT`, `VERIFY_INTERVAL`, `RESTART_COOLDOWN`, and `MAX_RESTART_ATTEMPTS` are currently module-level constants in `remediation.py`, so shortening a verification window for a demo or a test requires a source edit. Introduce a `RemediationSettings` dataclass in `config.py` (following the existing `PrometheusSettings` / `DiagnosticsSettings` pattern) supplying fleet-wide defaults, with per-service verification timing resolved from the CMDB `verification:` block — a Postgres restart legitimately needs a longer window than nginx.
+  * **Resolve settings at worker startup, not import time.** The existing `from_env()` module globals are evaluated on import, which prevents tests from adjusting timing without a module reload. Pass a resolved settings object into playbook execution instead.
+  * **Add missing autonomy bounds.** The platform currently has no per-signature remediation cooldown, no rate limit, no lifetime cap on automated actions, and no operator kill-switch; maintenance-window suppression is the only existing brake. Nothing prevents a flapping alert from repeatedly re-triggering remediation.
+  * Requires extending `validate_cmdb.py` to type- and bounds-check the new verification fields, adding the new keys to `.env.example`, and superseding **ADR 008**, which explicitly records these bounds as hard-coded constants (also referenced in `docs/ARCHITECTURE.md`, ADR 001, and `docs/implementation-findings.md`).
 
 ---
 

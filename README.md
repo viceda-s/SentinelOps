@@ -48,7 +48,7 @@ Phase 1 core infrastructure includes:
 * Modular alert ingestion lifecycle helper decomposition (`handlers.py`)
 * Dynamic repository-relative CMDB path resolution across CLI scripts and test suites
 
-**Phase 3 — Production Readiness & Extensibility** is currently under active execution, focusing on engineering rigor (CI/CD pipeline, automated E2E chaos harness), architectural extensibility (reliability primitives, generalized event model, formalized `/api/v1` REST interface, remediation plugin registry), and operational intelligence (alert correlation, operational analytics, AI Knowledge Assistant).
+**Phase 3 — Production Readiness & Extensibility** is currently under active execution, focusing on engineering rigor (CI/CD pipeline, automated E2E chaos harness), architectural extensibility (reliability primitives, generalized event model, formalized `/api/v1` REST interface, remediation plugin registry, configurable remediation bounds), and operational intelligence (alert correlation, operational analytics, AI Knowledge Assistant).
 
 See `ROADMAP.md` for the complete implementation roadmap and post-v1 expansion plan.
 
