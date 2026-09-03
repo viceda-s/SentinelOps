@@ -160,7 +160,8 @@ def process_suppressed_alert(conn: connection, alert: dict, cmdb: dict) -> dict 
     Unexpected uniqueness violations are re-raised rather than silently reconciled.
 
     Returns:
-        The created or reconciled incident, or None for an already-recorded maintenance suppression.
+        The created or reconciled incident, or None for an already-recorded maintenance
+        suppression, or None if the alert lacks an active silence to record (see below).
     """
 
     SUPPRESSED_ALERTS_DISCOVERED_TOTAL.inc()
@@ -183,6 +184,25 @@ def process_suppressed_alert(conn: connection, alert: dict, cmdb: dict) -> dict 
             cmdb,
             source="maintenance",
         )
+
+        # ingest_alert() succeeding (no UniqueViolation) means this fingerprint had no
+        # prior incident to collide with, so we're about to record a *new*
+        # SUPPRESSED_MAINTENANCE incident from scratch. Alertmanager's `silenced=true`
+        # query filter has been observed to include alerts whose own `status.silencedBy`
+        # is empty (e.g. a freshly-firing alert on a stack with no maintenance windows
+        # configured) -- trust the alert's own silence list over the query filter here.
+        # This does not apply to the collision branch below: there, an existing incident
+        # already owns the fingerprint and must be left untouched/reconciled regardless
+        # of whether this particular poll still sees an active silence.
+        if not alert["status"]["silencedBy"]:
+            conn.rollback()
+
+            logger.warning(
+                "Ignoring alert from silenced-alerts query with no active silence.",
+                extra={"fingerprint": fingerprint},
+            )
+
+            return None
 
         incident = transition(
             conn,
