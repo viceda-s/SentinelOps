@@ -163,10 +163,15 @@ def test_e2e_service_down_restart_playbook(db_connection):
     assert api_health.status_code == 200
 
     # 8. Assert metric increment via async polling under scenario_deadline
+    #
+    # Not an exact +1: this metric observes every incident resolution, not just this
+    # scenario's. The ServiceDown rule (`up == 0`) is intentionally global -- on a
+    # freshly-bootstrapped stack, another service can still be stabilizing when this
+    # runs and resolve its own transient ServiceDown incident inside this window.
     after_count = _wait_for_metric_increment(
         "sentinelops_incident_resolution_seconds_count", before_count, scenario_deadline
     )
-    assert after_count == before_count + 1
+    assert after_count >= before_count + 1
 
 
 @pytest.mark.e2e
@@ -311,12 +316,16 @@ def test_e2e_disk_pressure_cleanup_playbook(db_connection):
     scenario_start = datetime.now(timezone.utc)
     env = dict(os.environ)
     env["CHAOS_FILL_MAX_MB"] = "50000"
-    subprocess.run(
+    fill_result = subprocess.run(
         ["./automation/scripts/chaos.sh", "fill"],
         env=env,
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
+    )
+    assert fill_result.returncode == 0, (
+        f"chaos.sh fill failed (exit {fill_result.returncode}):\n"
+        f"stdout: {fill_result.stdout}\nstderr: {fill_result.stderr}"
     )
 
     # Wait for incident creation then wait for RESOLVED status under scenario_deadline
