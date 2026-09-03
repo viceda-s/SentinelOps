@@ -80,15 +80,79 @@ FILL_FILE="${CHAOS_DIR}/disk-fill"
 # The target is this script's own constant, deliberately not read from the
 # worker's DISK_PRESSURE_FREE_PERCENT or the alert rule: a chaos tool that
 # shares configuration with the system under test cannot demonstrate the two agree.
-FILL_TARGET_PERCENT=14
+FILL_TARGET_PERCENT=10
+
+# Allocate down to this many points below FILL_TARGET_PERCENT, not to the threshold
+# itself. df's measurement has enough noise (rounding, a few hundred KB reclaimed or
+# written elsewhere between the fill's own check and Prometheus's next scrape) that
+# landing exactly at the threshold risks one evaluation cycle reading back above it --
+# which resets the DiskPressure alert rule's `for: 2m` pending timer and can burn the
+# entire sustain window without ever reaching a stable firing state.
+FILL_MARGIN_PERCENT="${CHAOS_FILL_MARGIN_PERCENT:-3}"
+FILL_DEST_PERCENT=$(( FILL_TARGET_PERCENT - FILL_MARGIN_PERCENT ))
 
 # Refuse to allocate more than this. On a large, nearly-empty disk, reaching the
 # threshold would mean many gigabytes.
-FILL_MAX_MB=5120
+FILL_MAX_MB="${CHAOS_FILL_MAX_MB:-5120}"
 
-# Report the current free percentage of the filesystem holding the repo.
+# How long to keep watching free space after the initial fill and top it back up if
+# it drifts above target. Must comfortably exceed the DiskPressure alert rule's
+# `for: 2m` -- a fill that dips below target only briefly (host-level reclaim,
+# concurrent writes elsewhere on the disk) never lets that sustained-duration
+# requirement complete, so the alert silently never fires.
+SUSTAIN_SECONDS="${CHAOS_FILL_SUSTAIN_SECONDS:-150}"
+SUSTAIN_POLL_INTERVAL=10
+
+# Report the current free percentage of the filesystem holding the repo, truncated
+# to an integer for human-readable output. Not precise enough to gate the fill loop:
+# a filesystem sitting at e.g. 10.4% free truncates to "10", which would read as
+# already-at-target against a 10% threshold and skip allocating entirely.
 current_free_percent() {
     df -Pk "$REPO_ROOT" | awk 'NR==2 {printf "%d", $4 * 100 / $2}'
+}
+
+# Whether free space is still above the target, using unrounded KB arithmetic
+# so a target equal to the truncated current_free_percent doesn't short-circuit
+# the fill loop before anything is allocated.
+above_fill_target() {
+    df -Pk "$REPO_ROOT" | awk -v target="$FILL_TARGET_PERCENT" 'NR==2 {exit !($4 * 100 > target * $2)}'
+}
+
+# Top up the filler by the KB needed to bring free space down to FILL_DEST_PERCENT
+# (below target, not merely at it -- see FILL_MARGIN_PERCENT), respecting FILL_MAX_MB.
+# Prints progress and mutates $allocated_mb (caller's running total) in place; on
+# cap-exceeded or write failure, removes the filler and exits the script.
+allocate_needed() {
+    local total_kb avail_kb dest_avail_kb needed_kb needed_mb
+
+    total_kb="$(df -Pk "$REPO_ROOT" | awk 'NR==2 {print $2}')"
+    avail_kb="$(df -Pk "$REPO_ROOT" | awk 'NR==2 {print $4}')"
+
+    dest_avail_kb=$(( total_kb * FILL_DEST_PERCENT / 100 ))
+    needed_kb=$(( avail_kb - dest_avail_kb ))
+    needed_mb=$(( needed_kb / 1024 + 1 ))
+
+    if (( allocated_mb + needed_mb > FILL_MAX_MB )); then
+        rm -f "$FILL_FILE"
+        echo "Refusing to allocate $(( allocated_mb + needed_mb ))MB (cap: ${FILL_MAX_MB}MB)."
+        echo "This disk is too large to fill safely; test disk_cleanup with unit tests instead."
+        exit 1
+    fi
+
+    echo "Allocating ${needed_mb}MB (total ${allocated_mb}MB so far)..."
+
+    # bs=1048576 is 1MiB written portably: GNU dd spells the suffix 1M and
+    # BSD/macOS spells it 1m, but the raw byte count works on both.
+    # Appending via shell redirection rather than oflag=append, which BSD dd
+    # rejects outright ("unknown open flag append") -- leaving the filler
+    # silently under-allocated and the alert never firing.
+    if ! dd if=/dev/zero bs=1048576 count="$needed_mb" 2>/dev/null >> "$FILL_FILE"; then
+        rm -f "$FILL_FILE"
+        echo "Allocation failed; filler removed."
+        exit 1
+    fi
+
+    allocated_mb=$(( allocated_mb + needed_mb ))
 }
 
 fill_disk() {
@@ -109,37 +173,27 @@ fill_disk() {
     # allocation may not actually cross the threshold -- and a fill that
     # reports success while Prometheus never fires is worse than no tool.
     #
-    while (( $(current_free_percent) > FILL_TARGET_PERCENT )); do
-        local total_kb avail_kb target_avail_kb needed_kb needed_mb
+    while above_fill_target; do
+        allocate_needed
+    done
 
-        total_kb="$(df -Pk "$REPO_ROOT" | awk 'NR==2 {print $2}')"
-        avail_kb="$(df -Pk "$REPO_ROOT" | awk 'NR==2 {print $4}')"
+    echo
+    echo "Holding below ${FILL_TARGET_PERCENT}% free for ${SUSTAIN_SECONDS}s so the" \
+        "DiskPressure alert's sustained-duration window can complete..."
 
-        target_avail_kb=$(( total_kb * FILL_TARGET_PERCENT / 100 ))
-        needed_kb=$(( avail_kb - target_avail_kb ))
-        needed_mb=$(( needed_kb / 1024 + 1 ))
-
-        if (( allocated_mb + needed_mb > FILL_MAX_MB )); then
-            rm -f "$FILL_FILE"
-            echo "Refusing to allocate $(( allocated_mb + needed_mb ))MB (cap: ${FILL_MAX_MB}MB)."
-            echo "This disk is too large to fill safely; test disk_cleanup with unit tests instead."
-            exit 1
+    # A brief dip below target isn't enough: the alert rule requires free space to
+    # stay under threshold continuously for 2m. Host-level reclaim or concurrent
+    # writes elsewhere on the disk can push free space back above target within
+    # seconds of the initial fill -- keep watching and top up if that happens.
+    local elapsed=0
+    while (( elapsed < SUSTAIN_SECONDS )); do
+        if above_fill_target; then
+            echo "Free space drifted back above ${FILL_TARGET_PERCENT}%; topping up..."
+            allocate_needed
         fi
 
-        echo "Allocating ${needed_mb}MB (total ${allocated_mb}MB so far)..."
-
-        # bs=1048576 is 1MiB written portably: GNU dd spells the suffix 1M and
-        # BSD/macOS spells it 1m, but the raw byte count works on both.
-        # Appending via shell redirection rather than oflag=append, which BSD dd
-        # rejects outright ("unknown open flag append") -- leaving the filler
-        # silently under-allocated and the alert never firing.
-        if ! dd if=/dev/zero bs=1048576 count="$needed_mb" 2>/dev/null >> "$FILL_FILE"; then
-            rm -f "$FILL_FILE"
-            echo "Allocation failed; filler removed."
-            exit 1
-        fi
-
-        allocated_mb=$(( allocated_mb + needed_mb ))
+        sleep "$SUSTAIN_POLL_INTERVAL"
+        elapsed=$(( elapsed + SUSTAIN_POLL_INTERVAL ))
     done
 
     echo
@@ -147,7 +201,7 @@ fill_disk() {
     echo "  type: fill"
     echo "  path: $FILL_FILE"
     echo "  size: ${allocated_mb}MB"
-    echo "  free:  $(current_free_percent)% (threshold: 15%)"
+    echo "  free:  $(current_free_percent)% (threshold: ${FILL_TARGET_PERCENT}%)"
     echo
     echo "DiskPressure fires after 2m. Undo with:"
     echo "  ./automation/scripts/chaos.sh reset"
