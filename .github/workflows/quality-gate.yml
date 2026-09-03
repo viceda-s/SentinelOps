@@ -108,3 +108,53 @@ jobs:
 
       - name: pytest suite
         run: pytest
+
+  e2e-chaos:
+    name: E2E Chaos Pipeline Tests
+    runs-on: ubuntu-latest
+    needs: [config-validation, python-quality]
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - run: pip install -r requirements-dev.txt
+
+      - name: bootstrap the compose stack against the test environment
+        run: |
+          cp .env.test .env
+          ./automation/scripts/bootstrap.sh
+
+      - name: run e2e chaos test suite
+        run: pytest -m e2e
+
+      - name: upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-chaos-diagnostics
+          path: |
+            diagnostics/
+            .chaos/
+          if-no-files-found: ignore
+
+      - name: dump compose logs on failure
+        if: failure()
+        run: docker compose logs --no-color > compose-logs.txt
+
+      - name: upload compose logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-chaos-compose-logs
+          path: compose-logs.txt
+          if-no-files-found: ignore
+
+      - name: teardown stack
+        if: always()
+        run: docker compose down -v --remove-orphans

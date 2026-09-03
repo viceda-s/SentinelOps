@@ -296,6 +296,34 @@ Exercises the complete autonomous incident pipeline:
 
 The chaos tool operates only on services defined in the project's Docker Compose configuration and is intended exclusively for local development and testing.
 
+## Automated E2E Chaos Suite
+
+`tests/integration/test_chaos_e2e.py` drives the chaos tool programmatically and asserts
+the full incident lifecycle against a live stack: state machine transitions, worker claim,
+remediation outcome, and the relevant Prometheus metric increment.
+
+```bash
+cp .env.test .env
+./automation/scripts/bootstrap.sh
+pytest -m e2e
+```
+
+Excluded from the default `pytest` run (`addopts = -m "not e2e"` in `pyproject.toml`) since
+it requires a running Compose stack and takes several minutes.
+
+**Execution contract:**
+
+* **Exclusive stack ownership.** These tests fault-inject against the actual running
+  containers (stopping services, filling disk, firing real alerts). Do not run them
+  concurrently with anything else using the same stack.
+* **Stack must already be healthy.** Each test verifies stack readiness up front and skips
+  with a clear message if it isn't; run `bootstrap.sh` first.
+* **Guaranteed teardown.** `chaos.sh reset` and stopped services are restored automatically
+  after each test, even on failure, and the fixture fails loudly if the stack doesn't
+  return to a healthy baseline.
+* **Audit-preserving.** No incident rows are ever deleted; each scenario detects its own
+  freshly-created incident and only reads/asserts against it.
+
 ---
 
 # Repository Structure
