@@ -315,7 +315,10 @@ def test_e2e_disk_pressure_cleanup_playbook(db_connection):
 
     scenario_start = datetime.now(timezone.utc)
     env = dict(os.environ)
-    env["CHAOS_FILL_MAX_MB"] = "50000"
+    # GitHub-hosted runners have a large root filesystem with substantial free space
+    # at job start (observed: ~144GB total, ~59% free), needing ~75GB to reach the
+    # fill destination -- comfortable headroom above that, not sized for a laptop disk.
+    env["CHAOS_FILL_MAX_MB"] = "120000"
     fill_result = subprocess.run(
         ["./automation/scripts/chaos.sh", "fill"],
         env=env,
