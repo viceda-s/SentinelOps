@@ -2,8 +2,6 @@
 set -euo pipefail
 
 psql -v ON_ERROR_STOP=1 \
-    -h "${PGHOST:-${POSTGRES_HOST:-localhost}}" \
-    -p "${PGPORT:-${POSTGRES_PORT:-5432}}" \
     --username "$POSTGRES_USER" \
     --dbname "$POSTGRES_DB" <<EOSQL
 
