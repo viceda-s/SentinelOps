@@ -95,7 +95,7 @@ jobs:
       - run: pip install -r requirements-dev.txt
 
       - name: load test environment configuration
-        run: cat .env.test >> "$GITHUB_ENV"
+        run: grep -v '^#' .env.test | grep -v '^$' >> "$GITHUB_ENV"
 
       - name: initialize and verify test database schema
         run: ./automation/scripts/init_test_db.sh
