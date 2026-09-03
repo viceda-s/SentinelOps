@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+addopts = "-m 'not e2e'"
+markers = [
+    "e2e: End-to-end chaos pipeline tests requiring active Docker Compose stack",
+    "chaos: Chaos fault injection tests",
+]

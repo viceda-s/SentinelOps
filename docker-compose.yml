@@ -138,6 +138,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    ports:
+      - "5002:8000"
     restart: unless-stopped
 
   worker:
