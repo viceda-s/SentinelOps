@@ -125,6 +125,9 @@ jobs:
 
       - run: pip install -r requirements-dev.txt
 
+      - name: report runner disk state
+        run: df -Pk . | awk 'NR==2 {printf "total_kb=%d avail_kb=%d free_pct=%.2f\n", $2, $4, $4*100/$2}'
+
       - name: bootstrap the compose stack against the test environment
         run: |
           cp .env.test .env
