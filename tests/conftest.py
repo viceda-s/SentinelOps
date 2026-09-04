@@ -9,6 +9,31 @@ import pytest
 from psycopg2.extras import Json, RealDictCursor
 
 
+def _load_test_env() -> None:
+    """Load .env.test (or .env fallback) into os.environ for standalone pytest runs."""
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env_test = os.path.join(repo_root, ".env.test")
+    env_default = os.path.join(repo_root, ".env")
+
+    target_file = (
+        env_test
+        if os.path.isfile(env_test)
+        else (env_default if os.path.isfile(env_default) else None)
+    )
+    if target_file:
+        with open(target_file, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
+                    k, v = key.strip(), value.strip()
+                    if not os.environ.get(k):
+                        os.environ[k] = v
+
+
+_load_test_env()
+
+
 def required_env(name: str) -> str:
     """Return the value of a required environment variable or fail fast with an helpful error."""
     value = os.environ.get(name)

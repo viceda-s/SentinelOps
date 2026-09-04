@@ -32,7 +32,7 @@ tracks changes to `docs/DESIGN.md`'s recorded decisions, not every commit
 - Updated `README.md` and `docs/DESIGN.md` to reflect Phase 1.2 completion.
 - Reconciled `docs/adr/README.md` index table with Phase 1.2 ADR additions.
 
-## [1.1] - 2026-08-05
+## [1.1] - 2026-08-01
 
 ### Changed
 

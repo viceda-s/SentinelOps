@@ -13,7 +13,6 @@ from automation.response_engine.metrics import (
 )
 from tests.response_engine.helpers import (
     CMDB,
-    _firing_alert,
     _suppressed_alert,
     counter_value,
 )
@@ -94,7 +93,7 @@ def test_process_suppressed_alert_creates_suppressed_incident(
     committed_incident_cleanup,
 ):
     """Verify that process suppressed alert creates suppressed incident."""
-    alert = _firing_alert()
+    alert = _suppressed_alert("sil-1")
 
     before = counter_value(SUPPRESSED_INCIDENTS_CREATED_TOTAL)
 
@@ -119,7 +118,7 @@ def test_process_suppressed_alert_deduplicates(
     committed_incident_cleanup,
 ):
     """Verify that process suppressed alert deduplicates."""
-    alert = _firing_alert()
+    alert = _suppressed_alert("sil-1")
 
     first = process_suppressed_alert(
         db_connection,
@@ -162,7 +161,7 @@ def test_process_suppressed_alert_records_created_event_from_maintenance(
     committed_incident_cleanup,
 ):
     """Verify that process suppressed alert records created event from maintenance."""
-    alert = _firing_alert()
+    alert = _suppressed_alert("sil-1")
 
     incident = process_suppressed_alert(
         db_connection,
@@ -442,6 +441,36 @@ def test_process_suppressed_alert_skips_note_when_silenced_by_empty(
         assert cur.fetchone()["status"] == "IN_PROGRESS"
 
 
+def test_process_suppressed_alert_ignores_alert_with_no_active_silence(
+    db_connection,
+):
+    # Regression test: Alertmanager's `silenced=true` query filter has been observed
+    # to return alerts whose own status.silencedBy is empty -- e.g. a ServiceDown alert
+    # on a stack with no maintenance windows configured at all, firing for the first
+    # time. Because there is no colliding incident here (unlike the "skips note" test
+    # above), the bug this guards against is materially different: without it,
+    # process_suppressed_alert() would create a brand-new incident and immediately
+    # transition it straight to SUPPRESSED_MAINTENANCE, bypassing the normal
+    # NEW -> ACKNOWLEDGED -> IN_PROGRESS -> RESOLVED lifecycle entirely.
+    """Verify that process suppressed alert ignores an alert with no active silence."""
+    alert = _suppressed_alert()
+
+    before = counter_value(SUPPRESSED_INCIDENTS_CREATED_TOTAL)
+
+    result = process_suppressed_alert(db_connection, alert, CMDB)
+    db_connection.commit()
+
+    assert result is None
+    assert counter_value(SUPPRESSED_INCIDENTS_CREATED_TOTAL) == before
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) AS count FROM incidents WHERE fingerprint = %s",
+            (alert["fingerprint"],),
+        )
+        assert cur.fetchone()["count"] == 0
+
+
 def test_process_suppressed_alert_reconciles_duplicate_suppressed_incident_race(
     db_connection,
     committed_incident_cleanup,
@@ -457,7 +486,7 @@ def test_process_suppressed_alert_reconciles_duplicate_suppressed_incident_race(
     # find_suppressed_incident() rather than letting UniqueViolation
     # propagate uncaught.
     """Verify that process suppressed alert reconciles duplicate suppressed incident race."""
-    alert = _firing_alert()
+    alert = _suppressed_alert("sil-1")
 
     winner = process_suppressed_alert(db_connection, alert, CMDB)
     db_connection.commit()
@@ -510,7 +539,7 @@ def test_process_suppressed_alert_raises_when_unique_violation_is_unexplained(
     # different constraint fires), that's not a case to silently swallow --
     # it means the uniqueness assumptions have drifted from the schema.
     """Verify that process suppressed alert raises when unique violation is unexplained."""
-    alert = _firing_alert()
+    alert = _suppressed_alert("sil-1")
 
     with (
         patch(

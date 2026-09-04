@@ -48,7 +48,9 @@ Phase 1.1.1 core infrastructure includes:
 * Modular alert ingestion lifecycle helper decomposition (`handlers.py`)
 * Dynamic repository-relative CMDB path resolution across CLI scripts and test suites
 
-Future phases focus on extending the platform rather than completing the core incident response workflow.
+**Phase 3 — Production Readiness & Extensibility** is currently under active execution, focusing on engineering rigor (CI/CD pipeline, automated E2E chaos harness), architectural extensibility (reliability primitives, generalized event model, formalized `/api/v1` REST interface, remediation plugin registry, configurable remediation bounds), and operational intelligence (alert correlation, operational analytics, AI Knowledge Assistant).
+
+See `ROADMAP.md` for the complete implementation roadmap and post-v1 expansion plan.
 
 ---
 
@@ -144,8 +146,8 @@ Recovery verification supports:
 * `healthcheck.sh` — One-shot status check of every component (containers, HTTP endpoints, database). Exits 0 if all pass, 1 if anything is down.
 * `chaos.sh` — Chaos testing for exercising the incident response pipeline.
   - `stop <service>` — Stop a Compose service.
-  - `fill` — Allocate a bounded file to trigger `DiskPressure` alert.
-  - `reset` — Remove the disk filler.
+  - `fill` — Build bounded, disposable Docker images to trigger `DiskPressure` alert.
+  - `reset` — Remove the disk filler images.
 * `validate_cmdb.py` — Validates the CMDB configuration against alert rules and remediation playbooks.
 
 ## Operational Visibility (Phase 1.2)
@@ -294,6 +296,34 @@ Exercises the complete autonomous incident pipeline:
 
 The chaos tool operates only on services defined in the project's Docker Compose configuration and is intended exclusively for local development and testing.
 
+## Automated E2E Chaos Suite
+
+`tests/integration/test_chaos_e2e.py` drives the chaos tool programmatically and asserts
+the full incident lifecycle against a live stack: state machine transitions, worker claim,
+remediation outcome, and the relevant Prometheus metric increment.
+
+```bash
+cp .env.test .env
+./automation/scripts/bootstrap.sh
+pytest -m e2e
+```
+
+Excluded from the default `pytest` run (`addopts = -m "not e2e"` in `pyproject.toml`) since
+it requires a running Compose stack and takes several minutes.
+
+**Execution contract:**
+
+* **Exclusive stack ownership.** These tests fault-inject against the actual running
+  containers (stopping services, filling disk, firing real alerts). Do not run them
+  concurrently with anything else using the same stack.
+* **Stack must already be healthy.** Each test verifies stack readiness up front and skips
+  with a clear message if it isn't; run `bootstrap.sh` first.
+* **Guaranteed teardown.** `chaos.sh reset` and stopped services are restored automatically
+  after each test, even on failure, and the fixture fails loudly if the stack doesn't
+  return to a healthy baseline.
+* **Audit-preserving.** No incident rows are ever deleted; each scenario detects its own
+  freshly-created incident and only reads/asserts against it.
+
 ---
 
 # Repository Structure
@@ -367,7 +397,7 @@ Phase 1.1 and Phase 1.2 establish the complete autonomous incident response and 
 * CI/CD improvements
 * Cloud deployment
 
-The complete implementation roadmap is documented in `docs/DESIGN.md`.
+The complete implementation priorities, architectural trade-offs, and post-v1 expansion plan are documented in `ROADMAP.md`.
 
 ---
 

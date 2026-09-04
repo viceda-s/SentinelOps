@@ -2,14 +2,14 @@ groups:
   - name: sentinelops
     rules:
       - alert: DiskPressure
-        expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|erofs|overlay|squashfs", mountpoint!~"/oldroot|/run.*"} / node_filesystem_size_bytes{fstype!~"tmpfs|erofs|overlay|squashfs", mountpoint!~"/oldroot|/run.*"}) * 100 < 15
+        expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|erofs|overlay|squashfs", mountpoint!~"/oldroot|/run.*"} / node_filesystem_size_bytes{fstype!~"tmpfs|erofs|overlay|squashfs", mountpoint!~"/oldroot|/run.*"}) * 100 < 10
         for: 2m
         labels:
           severity: warning
           playbook: disk_cleanup
         annotations:
           summary: "Low disk space on {{ $labels.instance }} ({{ $labels.mountpoint }})"
-          description: "Free disk space has dropped below 15%."
+          description: "Free disk space has dropped below 10%."
 
       - alert: HighCPU
         expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90

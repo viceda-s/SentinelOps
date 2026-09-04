@@ -582,15 +582,15 @@ Maintenance windows, engine `/metrics`, SLA fields and breach calculation, MTTR 
 
 **Done when:** closing an incident produces a PDF with real diagnostic evidence and an RCA I've written, and Grafana shows MTTR calculated from actual incidents. (Completed & Verified).
 
-### Phase 3 — finishing
+### Phase 3 — Production Readiness & Extensibility
 
-Screenshots, a sample report committed, CHANGELOG, ROADMAP, shellcheck clean, tests for the state machine and the dedupe logic, and a full run-through on a clean machine to confirm the README is actually sufficient.
+Focuses on engineering rigor (GitHub Actions CI, automated E2E chaos testing, zero-friction verification), architectural extensibility (reliability primitives `correlation_id`/`execution_id`, generalized typed event model, formalized `/api/v1` REST interface, remediation plugin registry), and operational intelligence (alert correlation into Problem records, operational analytics, and AI Knowledge Assistant RAG).
 
-**Done when:** someone can clone the repo, run `./bootstrap.sh`, and get a working system using only the README.
+**Done when:** Tier 1 engineering quality gates pass in CI; the automated E2E chaos suite validates the defined incident lifecycle scenarios; Tier 2 reliability, event, API, and remediation extensibility boundaries are implemented and tested; and the Tier 3 operational-intelligence features defined in `ROADMAP.md` are implemented and validated.
 
-### Later
+### Later (Post-v1)
 
-Notifications, cloud deployment, Ansible, Loki, alert correlation. These stay in the roadmap.
+Production Deployment Hardening (Authentication/RBAC, secret management, Docker socket proxy), cloud deployment (Ansible/Terraform), Loki/Vector centralized logging, and external notification channels. The full execution plan and technical trade-offs are documented in `ROADMAP.md`.
 
 ---
 
