@@ -146,8 +146,8 @@ Recovery verification supports:
 * `healthcheck.sh` — One-shot status check of every component (containers, HTTP endpoints, database). Exits 0 if all pass, 1 if anything is down.
 * `chaos.sh` — Chaos testing for exercising the incident response pipeline.
   - `stop <service>` — Stop a Compose service.
-  - `fill` — Allocate a bounded file to trigger `DiskPressure` alert.
-  - `reset` — Remove the disk filler.
+  - `fill` — Build bounded, disposable Docker images to trigger `DiskPressure` alert.
+  - `reset` — Remove the disk filler images.
 * `validate_cmdb.py` — Validates the CMDB configuration against alert rules and remediation playbooks.
 
 ## Operational Visibility (Phase 2)
