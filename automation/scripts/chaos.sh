@@ -98,7 +98,7 @@ FILL_MAX_MB="${CHAOS_FILL_MAX_MB:-5120}"
 # Docker Desktop's VM disk has been observed to grow well past the MB requested in
 # one large build. Small rounds bound the damage and let the loop re-measure between
 # them instead of trusting one giant calculated allocation.
-FILL_ROUND_MAX_MB="${CHAOS_FILL_ROUND_MAX_MB:-1024}"
+FILL_ROUND_MAX_MB="${CHAOS_FILL_ROUND_MAX_MB:-4096}"
 
 # Must exceed the alert's `for: 2m` -- a dip that's brief never lets it fire.
 SUSTAIN_SECONDS="${CHAOS_FILL_SUSTAIN_SECONDS:-150}"
