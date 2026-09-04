@@ -152,6 +152,11 @@ allocate_needed() {
         exit 1
     fi
 
+    # BuildKit leaves the RUN layer in the build cache too, roughly doubling real
+    # host-disk usage per round if left alone -- prune it immediately so only the
+    # image itself (tracked in $allocated_mb) persists.
+    docker builder prune -af >/dev/null 2>&1 || true
+
     echo "$image_id" >> "$FILL_IMAGE_IDS_FILE"
     allocated_mb=$(( allocated_mb + round_mb ))
 }
