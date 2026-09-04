@@ -1,0 +1,69 @@
+name: Bug report
+description: The response engine, monitoring stack, or tooling doesn't behave as documented
+title: "[BUG] "
+labels: ["type:bug"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area affected
+      options:
+        - area:response-engine
+        - area:observability
+        - area:reporting
+        - area:database
+        - area:infra
+        - area:tooling
+        - area:api
+        - area:testing
+        - area:docs
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - severity:sev1 - breaks the core detect-to-resolve loop
+        - severity:sev2 - degraded, partial functionality affected
+        - severity:sev3 - minor, cosmetic or edge-case only
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What the README, ARCHITECTURE.md, or an ADR says should happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Paste the real output — logs, `incident_events` rows, container status — not a summary of it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Commands run against a real stack (`bootstrap.sh`, `chaos.sh`, etc.), in order.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      value: |
+        - OS:
+        - Docker version:
+        - Docker Compose version:
+        - Clean clone or existing volume:
+    validations:
+      required: true

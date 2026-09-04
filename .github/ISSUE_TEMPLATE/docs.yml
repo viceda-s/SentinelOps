@@ -1,0 +1,41 @@
+name: Documentation
+description: Missing, unclear, or outdated documentation
+title: "[DOCS] "
+labels: ["type:docs", "area:docs"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        README.md, ARCHITECTURE.md, DESIGN.md, ADRs, and runbooks are expected to match
+        the shipped system. A gap here is a real defect, not a nice-to-have — see the
+        README-update convention this repo follows on every commit.
+
+  - type: dropdown
+    id: doc
+    attributes:
+      label: Document affected
+      options:
+        - README.md
+        - docs/ARCHITECTURE.md
+        - docs/DESIGN.md
+        - docs/adr/
+        - docs/runbooks/
+        - docs/implementation-findings.md
+        - ROADMAP.md
+        - CHANGELOG.md
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: gap
+    attributes:
+      label: What is missing or wrong
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed content
+      description: A sketch is enough — the sections or facts that need to be added or corrected.

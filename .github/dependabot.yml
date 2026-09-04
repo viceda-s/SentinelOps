@@ -1,0 +1,113 @@
+version: 2
+
+updates:
+  # Keep the actions used by the CI quality-gate workflow current. Pinned action
+  # versions go stale quietly, and a stale action is a common cause of a workflow
+  # that starts failing for reasons unrelated to the change under review.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - type:ci
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - area:testing
+
+  - package-ecosystem: pip
+    directory: /docker/api
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - area:api
+
+  - package-ecosystem: pip
+    directory: /docker/webhook-handler
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - area:response-engine
+
+  - package-ecosystem: pip
+    directory: /docker/worker
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - area:response-engine
+
+  - package-ecosystem: pip
+    directory: /docker/maintenance-monitor
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - area:response-engine
+
+  - package-ecosystem: pip
+    directory: /docker/report-generator
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - area:reporting
+
+  - package-ecosystem: docker
+    directory: /docker/api
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - area:infra
+
+  - package-ecosystem: docker
+    directory: /docker/webhook-handler
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - area:infra
+
+  - package-ecosystem: docker
+    directory: /docker/worker
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - area:infra
+
+  - package-ecosystem: docker
+    directory: /docker/maintenance-monitor
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - area:infra
+
+  - package-ecosystem: docker
+    directory: /docker/report-generator
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - area:infra

@@ -1,0 +1,73 @@
+name: Task
+description: Leaf implementation work with an architecturally decided scope
+title: ""
+labels: ["enhancement", "type:task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One task = one deliverable that can be reviewed and verified on its own.
+        If it can't be validated by a command or a real end-to-end run, split it.
+        Leaf issues are only opened once implementation scope has been architecturally
+        decided — if that decision hasn't been made yet, this is `status:planned` work
+        under a tier epic, not a task.
+
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Phase 3 tier (if applicable)
+      options:
+        - tier:1 - Engineering Rigor
+        - tier:2 - Extensibility & Core Platform
+        - tier:3 - Operational Intelligence
+        - not part of Phase 3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - area:response-engine
+        - area:observability
+        - area:reporting
+        - area:database
+        - area:infra
+        - area:tooling
+        - area:api
+        - area:testing
+        - area:docs
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What needs to be built or changed, and which design doc / ADR / ROADMAP.md item motivates it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: The conditions that make this done. One checkbox per condition.
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: >
+        The commands or real end-to-end run that proves this works — the same evidence
+        the pull request will carry. e.g. `pytest -m e2e`, `./automation/scripts/chaos.sh stop <service>`,
+        a clean-clone bootstrap.
+      render: shell
+    validations:
+      required: true

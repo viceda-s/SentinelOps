@@ -1,0 +1,10 @@
+# Force every issue through a template so the board stays consistent.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Architecture & design docs
+    url: https://github.com/viceda-s/SentinelOps/tree/main/docs
+    about: Read ARCHITECTURE.md, DESIGN.md, and the ADRs before opening an issue.
+  - name: Roadmap
+    url: https://github.com/viceda-s/SentinelOps/blob/main/ROADMAP.md
+    about: Check whether this is already tracked as a planned Phase 3 item.
