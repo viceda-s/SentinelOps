@@ -13,8 +13,8 @@ Usage:
 
 Commands:
     stop <service>    Stop a Compose service.
-    fill              Allocate a bounded file until disk is under 15% free.
-    reset             Remove the disk filler.
+    fill              Build disposable dangling Docker images until disk is under 10% free.
+    reset             Remove the disk filler images.
 
 Examples:
     ./automation/scripts/chaos.sh stop api
@@ -71,59 +71,54 @@ stop_service() {
     echo "  service: $service"
 }
 
-# The filler lives in its own owned path, never under diagnostics/ -- disk_cleanup
-# deliberately prunes that directory, so a filler placed there could be destroyed
-# by the very playbook under test.
+# Never under diagnostics/ -- disk_cleanup prunes that directory.
 CHAOS_DIR="${REPO_ROOT}/.chaos"
-FILL_FILE="${CHAOS_DIR}/disk-fill"
 
-# The target is this script's own constant, deliberately not read from the
-# worker's DISK_PRESSURE_FREE_PERCENT or the alert rule: a chaos tool that
-# shares configuration with the system under test cannot demonstrate the two agree.
+# Filler images are built dangling (no --tag) so disk_cleanup's unmodified
+# `images.prune(dangling=True)` reclaims them for real, not via a test-only path.
+FILL_IMAGE_IDS_FILE="${CHAOS_DIR}/disk-fill-image-ids"
+FILL_DOCKERFILE="${CHAOS_DIR}/disk-fill.Dockerfile"
+
+# Already local by the time chaos.sh runs (bootstrap.sh starts the postgres service).
+FILLER_BASE_IMAGE="postgres:16-alpine"
+
+# Not read from the worker's config -- sharing config with the system under test
+# can't demonstrate the two agree.
 FILL_TARGET_PERCENT=10
 
-# Allocate down to this many points below FILL_TARGET_PERCENT, not to the threshold
-# itself. df's measurement has enough noise (rounding, a few hundred KB reclaimed or
-# written elsewhere between the fill's own check and Prometheus's next scrape) that
-# landing exactly at the threshold risks one evaluation cycle reading back above it --
-# which resets the DiskPressure alert rule's `for: 2m` pending timer and can burn the
-# entire sustain window without ever reaching a stable firing state.
+# Margin below target: df/Prometheus measurement noise can otherwise land exactly at
+# the threshold and flip back above it, resetting the alert's `for: 2m` timer.
 FILL_MARGIN_PERCENT="${CHAOS_FILL_MARGIN_PERCENT:-3}"
 FILL_DEST_PERCENT=$(( FILL_TARGET_PERCENT - FILL_MARGIN_PERCENT ))
 
-# Refuse to allocate more than this. On a large, nearly-empty disk, reaching the
-# threshold would mean many gigabytes.
+# Total allocation cap, in case of a large disk.
 FILL_MAX_MB="${CHAOS_FILL_MAX_MB:-5120}"
 
-# How long to keep watching free space after the initial fill and top it back up if
-# it drifts above target. Must comfortably exceed the DiskPressure alert rule's
-# `for: 2m` -- a fill that dips below target only briefly (host-level reclaim,
-# concurrent writes elsewhere on the disk) never lets that sustained-duration
-# requirement complete, so the alert silently never fires.
+# Per-build cap: a `docker build` is one opaque, uninterruptible operation, and
+# Docker Desktop's VM disk has been observed to grow well past the MB requested in
+# one large build. Small rounds bound the damage and let the loop re-measure between
+# them instead of trusting one giant calculated allocation.
+FILL_ROUND_MAX_MB="${CHAOS_FILL_ROUND_MAX_MB:-1024}"
+
+# Must exceed the alert's `for: 2m` -- a dip that's brief never lets it fire.
 SUSTAIN_SECONDS="${CHAOS_FILL_SUSTAIN_SECONDS:-150}"
 SUSTAIN_POLL_INTERVAL=10
 
-# Report the current free percentage of the filesystem holding the repo, truncated
-# to an integer for human-readable output. Not precise enough to gate the fill loop:
-# a filesystem sitting at e.g. 10.4% free truncates to "10", which would read as
-# already-at-target against a 10% threshold and skip allocating entirely.
 current_free_percent() {
     df -Pk "$REPO_ROOT" | awk 'NR==2 {printf "%d", $4 * 100 / $2}'
 }
 
-# Whether free space is still above the target, using unrounded KB arithmetic
-# so a target equal to the truncated current_free_percent doesn't short-circuit
-# the fill loop before anything is allocated.
+# Unrounded KB arithmetic so a target equal to the truncated percent above doesn't
+# short-circuit the loop before anything is allocated.
 above_fill_target() {
     df -Pk "$REPO_ROOT" | awk -v target="$FILL_TARGET_PERCENT" 'NR==2 {exit !($4 * 100 > target * $2)}'
 }
 
-# Top up the filler by the KB needed to bring free space down to FILL_DEST_PERCENT
-# (below target, not merely at it -- see FILL_MARGIN_PERCENT), respecting FILL_MAX_MB.
-# Prints progress and mutates $allocated_mb (caller's running total) in place; on
-# cap-exceeded or write failure, removes the filler and exits the script.
+# Builds one dangling image, sized to close the gap to FILL_DEST_PERCENT but capped
+# at FILL_ROUND_MAX_MB per round and FILL_MAX_MB in total. Mutates $allocated_mb
+# (caller's running total) in place; removes filler and exits on cap or failure.
 allocate_needed() {
-    local total_kb avail_kb dest_avail_kb needed_kb needed_mb
+    local total_kb avail_kb dest_avail_kb needed_kb needed_mb round_mb image_id
 
     total_kb="$(df -Pk "$REPO_ROOT" | awk 'NR==2 {print $2}')"
     avail_kb="$(df -Pk "$REPO_ROOT" | awk 'NR==2 {print $4}')"
@@ -132,47 +127,60 @@ allocate_needed() {
     needed_kb=$(( avail_kb - dest_avail_kb ))
     needed_mb=$(( needed_kb / 1024 + 1 ))
 
-    if (( allocated_mb + needed_mb > FILL_MAX_MB )); then
-        rm -f "$FILL_FILE"
-        echo "Refusing to allocate $(( allocated_mb + needed_mb ))MB (cap: ${FILL_MAX_MB}MB)."
+    round_mb=$needed_mb
+    if (( round_mb > FILL_ROUND_MAX_MB )); then
+        round_mb=$FILL_ROUND_MAX_MB
+    fi
+
+    if (( allocated_mb + round_mb > FILL_MAX_MB )); then
+        reset_chaos
+        echo "Refusing to allocate $(( allocated_mb + round_mb ))MB (cap: ${FILL_MAX_MB}MB)."
         echo "This disk is too large to fill safely; test disk_cleanup with unit tests instead."
         exit 1
     fi
 
-    echo "Allocating ${needed_mb}MB (total ${allocated_mb}MB so far)..."
+    echo "Allocating ${round_mb}MB (total ${allocated_mb}MB so far, ~${needed_mb}MB still needed)..."
 
-    # bs=1048576 is 1MiB written portably: GNU dd spells the suffix 1M and
-    # BSD/macOS spells it 1m, but the raw byte count works on both.
-    # Appending via shell redirection rather than oflag=append, which BSD dd
-    # rejects outright ("unknown open flag append") -- leaving the filler
-    # silently under-allocated and the alert never firing.
-    if ! dd if=/dev/zero bs=1048576 count="$needed_mb" 2>/dev/null >> "$FILL_FILE"; then
-        rm -f "$FILL_FILE"
-        echo "Allocation failed; filler removed."
+    # Multi-stage: the builder stage is discarded by BuildKit, so the final
+    # dangling image (-q, no --tag) is just the generated data.
+    if ! image_id="$(docker build -q \
+        --build-arg "FILL_MB=${round_mb}" \
+        --build-arg "BASE_IMAGE=${FILLER_BASE_IMAGE}" \
+        -f "$FILL_DOCKERFILE" "$CHAOS_DIR" 2>/dev/null)"; then
+        reset_chaos
+        echo "Allocation failed; filler images removed."
         exit 1
     fi
 
-    allocated_mb=$(( allocated_mb + needed_mb ))
+    echo "$image_id" >> "$FILL_IMAGE_IDS_FILE"
+    allocated_mb=$(( allocated_mb + round_mb ))
 }
 
 fill_disk() {
 
-    if [[ -e "$FILL_FILE" ]]; then
-        echo "Filler already exists: $FILL_FILE"
+    if [[ -e "$FILL_IMAGE_IDS_FILE" ]]; then
+        echo "Filler images already recorded: $FILL_IMAGE_IDS_FILE"
         echo "Run './automation/scripts/chaos.sh reset' first."
         exit 1
     fi
 
     mkdir -p "$CHAOS_DIR"
 
+    # RUN generates the data in-container (no build-context upload); FROM scratch
+    # keeps the final image to just that data.
+    cat > "$FILL_DOCKERFILE" <<'DOCKERFILE'
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE} AS filler-base
+ARG FILL_MB
+RUN dd if=/dev/zero of=/chaos-filler bs=1M count=${FILL_MB} 2>/dev/null
+
+FROM scratch
+COPY --from=filler-base /chaos-filler /chaos-filler
+DOCKERFILE
+
     local allocated_mb=0
 
-    #
-    # Allocate in rounds and re-measure after each. Filesystem rounding,
-    # reserved blocks, and concurrent writes mean a single calculated
-    # allocation may not actually cross the threshold -- and a fill that
-    # reports success while Prometheus never fires is worse than no tool.
-    #
+    # Re-measure after each round rather than trusting one calculated allocation.
     while above_fill_target; do
         allocate_needed
     done
@@ -181,10 +189,6 @@ fill_disk() {
     echo "Holding below ${FILL_TARGET_PERCENT}% free for ${SUSTAIN_SECONDS}s so the" \
         "DiskPressure alert's sustained-duration window can complete..."
 
-    # A brief dip below target isn't enough: the alert rule requires free space to
-    # stay under threshold continuously for 2m. Host-level reclaim or concurrent
-    # writes elsewhere on the disk can push free space back above target within
-    # seconds of the initial fill -- keep watching and top up if that happens.
     local elapsed=0
     while (( elapsed < SUSTAIN_SECONDS )); do
         if above_fill_target; then
@@ -199,7 +203,7 @@ fill_disk() {
     echo
     echo "Chaos event injected:"
     echo "  type: fill"
-    echo "  path: $FILL_FILE"
+    echo "  images: $(wc -l < "$FILL_IMAGE_IDS_FILE" | tr -d ' ')"
     echo "  size: ${allocated_mb}MB"
     echo "  free:  $(current_free_percent)% (threshold: ${FILL_TARGET_PERCENT}%)"
     echo
@@ -209,14 +213,21 @@ fill_disk() {
 
 reset_chaos() {
 
-    if [[ ! -e "$FILL_FILE" ]]; then
-        echo "No filler to remove."
+    if [[ ! -e "$FILL_IMAGE_IDS_FILE" ]]; then
+        echo "No filler images to remove."
         return
     fi
 
-    rm -f "$FILL_FILE"
+    while IFS= read -r image_id; do
+        [[ -n "$image_id" ]] || continue
+        docker rmi -f "$image_id" >/dev/null 2>&1 || true
+    done < "$FILL_IMAGE_IDS_FILE"
 
-    echo "Removed $FILL_FILE"
+    docker builder prune -af >/dev/null 2>&1 || true
+
+    rm -f "$FILL_IMAGE_IDS_FILE" "$FILL_DOCKERFILE"
+
+    echo "Removed filler images."
 }
 
 COMMAND="${1:-}"
