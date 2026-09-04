@@ -133,6 +133,28 @@ jobs:
           cp .env.test .env
           ./automation/scripts/bootstrap.sh
 
+      - name: DEBUG docker storage layout
+        run: |
+          docker info
+          echo "--- df -h ---"
+          df -h
+          echo "--- building one 1024MB filler image ---"
+          mkdir -p .chaos
+          cat > .chaos/disk-fill.Dockerfile <<'DOCKERFILE'
+          ARG BASE_IMAGE
+          FROM ${BASE_IMAGE} AS filler-base
+          ARG FILL_MB
+          RUN dd if=/dev/zero of=/chaos-filler bs=1M count=${FILL_MB} 2>/dev/null
+
+          FROM scratch
+          COPY --from=filler-base /chaos-filler /chaos-filler
+          DOCKERFILE
+          df -Pk . | awk 'NR==2 {printf "before: avail_kb=%d\n", $4}'
+          time docker build -q --build-arg FILL_MB=1024 --build-arg BASE_IMAGE=postgres:16-alpine -f .chaos/disk-fill.Dockerfile .chaos
+          df -Pk . | awk 'NR==2 {printf "after: avail_kb=%d\n", $4}'
+          docker system df
+          rm -f .chaos/disk-fill.Dockerfile
+
       - name: run e2e chaos test suite
         run: pytest -m e2e
 
