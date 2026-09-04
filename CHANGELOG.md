@@ -4,15 +4,7 @@ All notable changes to SentinelOps's design are recorded here. This
 tracks changes to `docs/DESIGN.md`'s recorded decisions, not every commit
 — see git history for full implementation detail.
 
-## [Unreleased]
-
-### Added
-
-- Added `ROADMAP.md` as the authoritative execution plan for **Phase 3 — Production Readiness & Extensibility** and post-v1 expansion.
-- Reconciled project documentation (`README.md`, `docs/DESIGN.md`) with explicit Phase 3 scope boundaries (Tier 1: Engineering Rigor, Tier 2: Extensibility, Tier 3: Operational Intelligence).
-- Documented technical rationale for excluding Kubernetes, Kafka, and Redis in favor of PostgreSQL `FOR UPDATE SKIP LOCKED` and simple multi-container orchestration.
-
-## [2.1] - 2026-08-09
+## [1.2.1] - 2026-08-09
 
 ### Added
 
@@ -24,21 +16,21 @@ tracks changes to `docs/DESIGN.md`'s recorded decisions, not every commit
 - Decomposed `automation/response_engine/handlers.py` into dedicated helper functions (`_reconcile_duplicate_alert`, `_create_new_incident_from_alert`) for improved alert processing modularity and maintainability.
 - Decoupled `CMDB_PATH` resolution across scripts (`validate_cmdb.py`, `close_incident.py`, `health_page.py`) to support both containerized execution and local CLI/test invocations.
 - Added explicit database connection type hints (`psycopg2.extensions.connection`) across all response engine modules.
-- Reconciled `README.md` and `docs/DESIGN.md` with post-Phase 2 architectural refactorings.
+- Reconciled `README.md` and `docs/DESIGN.md` with post-Phase 1.2 architectural refactorings.
 
-## [2.0] - 2026-08-08
+## [1.2.0] - 2026-08-08
 
 ### Added
 
-- Shipped Phase 2 operational runbooks: `maintenance-windows.md`, `incident-closure-and-reports.md`, `backup-and-disaster-recovery.md`, `disk-cleanup.md`.
+- Shipped Phase 1.1.2 operational runbooks: `maintenance-windows.md`, `incident-closure-and-reports.md`, `backup-and-disaster-recovery.md`, `disk-cleanup.md`.
 - Added Architecture Decision Records ADR-009 (Maintenance Window Alertmanager Suppression), ADR-010 (SLA Breach Calculation and Metrics), and ADR-011 (Decoupled Report Generation and Health Dashboard).
-- Recorded Phase 2 implementation findings 11–13 in `docs/implementation-findings.md` covering maintenance deduplication, `clock_timestamp()` SLA intervals, and atomic health page file publication.
+- Recorded Phase 1.1.2 implementation findings 11–13 in `docs/implementation-findings.md` covering maintenance deduplication, `clock_timestamp()` SLA intervals, and atomic health page file publication.
 - Performed a repository-wide Python docstring and comment audit establishing PEP 257 Google-style docstrings and explaining critical code invariants without altering application logic.
 
 ### Changed
 
-- Updated `README.md` and `docs/DESIGN.md` to reflect Phase 2 completion.
-- Reconciled `docs/adr/README.md` index table with Phase 2 ADR additions.
+- Updated `README.md` and `docs/DESIGN.md` to reflect Phase 1.2 completion.
+- Reconciled `docs/adr/README.md` index table with Phase 1.2 ADR additions.
 
 ## [1.1] - 2026-08-01
 

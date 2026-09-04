@@ -4,7 +4,7 @@
 
 ## Context
 
-Phase 2 required introducing Service Level Agreements (SLAs) for incident response and resolution time, tracking SLA breaches, and exporting Mean Time to Resolution (MTTR) metrics for operational dashboards.
+Phase 1.2 required introducing Service Level Agreements (SLAs) for incident response and resolution time, tracking SLA breaches, and exporting Mean Time to Resolution (MTTR) metrics for operational dashboards.
 
 Incident lifecycles involve variable durations between detection, acknowledgment, remediation, and resolution. Relying on manual operator calculation or post-hoc database queries makes SLA enforcement unreliable and prevents real-time alerting on SLA breaches.
 

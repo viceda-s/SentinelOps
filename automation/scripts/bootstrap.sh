@@ -147,7 +147,7 @@ validate_alertmanager() {
     # TODO:
     #
     # DESIGN.md also requires verifying that the maintenance route exists.
-    # Maintenance windows are Phase 2, so this check is intentionally
+    # Maintenance windows are Phase 1.2, so this check is intentionally
     # deferred until that feature is implemented.
     #
 }

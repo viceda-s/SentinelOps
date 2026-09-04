@@ -36,7 +36,7 @@ consistent.
 
 * **Direct `UPDATE` statements at each call site.** Rejected because every caller would need to implement transition validation and audit logging independently, increasing the risk of inconsistent behaviour.
 
-* **Database-enforced transitions (triggers or constraints).** Rejected for Phase 1 because it moves lifecycle rules into the database schema, making them harder to read, test, and evolve alongside the response engine. Database enforcement remains a possible defence-in-depth enhancement in the future.
+* **Database-enforced transitions (triggers or constraints).** Rejected for Phase 1.1 because it moves lifecycle rules into the database schema, making them harder to read, test, and evolve alongside the response engine. Database enforcement remains a possible defence-in-depth enhancement in the future.
 
 * **No transition validation.** Rejected because independent components (webhook handler and worker) could silently corrupt incident state if either contained a bug.
 

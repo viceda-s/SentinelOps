@@ -1,7 +1,7 @@
 # Implementation findings
 
 Real discrepancies between `docs/DESIGN.md` v1.0 and what building it actually
-required, found during Phase 1. Not a changelog and not a wishlist — only
+required, found during Phase 1.1. Not a changelog and not a wishlist — only
 things where the design's own words contradict each other or contradict
 observed reality.
 
@@ -54,7 +54,7 @@ have been worse than deviating from a frozen document.
 
 ## 3. Runbooks are one per operational response, and the CMDB can't express that
 
-DESIGN.md says runbooks are written "one per alert type." Phase 1's two
+DESIGN.md says runbooks are written "one per alert type." Phase 1.1's two
 playbooks don't map cleanly onto that: `restart_service` serves `ServiceDown`
 alone, but `collect_diagnostics` serves four different alerts (`HighCPU`,
 `HighMemory`, `HighErrorRate`, `HighLatency`) with an identical automated
@@ -110,7 +110,7 @@ capabilities of each monitored service.
 
 This requires a CMDB schema extension (`verification:`), corresponding
 validation in `validate_cmdb.py`, and updates to every existing service entry.
-Applied in Phase 1 because the design's single "`/health`" step could not
+Applied in Phase 1.1 because the design's single "`/health`" step could not
 describe the real monitored estate without either hardcoded exceptions or
 incorrect recovery verification.
 
@@ -169,7 +169,7 @@ dedup window, the same as `CLOSED` and `SUPPRESSED_MAINTENANCE` already did.
 Reasoning: the worker's unit of work is one incident — claim, run a playbook,
 verify, resolve — and that lifecycle is complete once `RESOLVED` is reached.
 A later alert with the same fingerprint is a new remediation, not a
-continuation of the old one, and Phase 2's MTTR/remediation-success-rate
+continuation of the old one, and Phase 1.2's MTTR/remediation-success-rate
 metrics only have an unambiguous meaning if one outage maps to one incident.
 `CLOSED` remains a separate, deliberately administrative state (RCA written,
 report generated) — whether an operator has gotten around to documentation
@@ -305,7 +305,7 @@ required inventing sub-categories the fixed vocabulary didn't anticipate
 The implemented schema is `timestamp`, `level`, `logger`, `message`,
 `incident_reference` (when applicable), `exception` (on error), and an
 optional free-form `context` object — structurally simpler than DESIGN.md's
-proposal, and it still satisfies Phase 1's actual requirement (every log
+proposal, and it still satisfies Phase 1.1's actual requirement (every log
 line from an incident is valid JSON, filterable by `incident_reference`).
 Not caught at the time as a documented deviation, unlike findings 1-7 — the
 schema simply evolved during implementation without a corresponding
@@ -353,25 +353,25 @@ full incident timeline."
 
 The response engine originally assumed the CMDB would remain unchanged for the lifetime of an incident. This created a failure mode where removing or renaming a service entry while an incident was still open could strand the incident indefinitely. The worker now treats missing CMDB entries as a terminal condition and escalates the incident instead of retrying forever.
 
-## Phase 2 Findings (2026-08-09)
+## Phase 1.2 Findings (2026-08-09)
 
-Discrepancies and architectural clarifications discovered during Phase 2 implementation, reconciled alongside Phase 2 runbooks and ADRs.
+Discrepancies and architectural clarifications discovered during Phase 1.2 implementation, reconciled alongside Phase 1.2 runbooks and ADRs.
 
 ### 11. Maintenance window suppression relies on Alertmanager silences and partial unique index deduplication
 
-Phase 2 required suppressing alert notifications during maintenance windows without ignoring alerts entirely. The implemented system handles maintenance windows by fetching active silences directly from Alertmanager (`/api/v2/alerts?silenced=true&active=true`) via a dedicated `maintenance-monitor` worker process.
+Phase 1.2 required suppressing alert notifications during maintenance windows without ignoring alerts entirely. The implemented system handles maintenance windows by fetching active silences directly from Alertmanager (`/api/v2/alerts?silenced=true&active=true`) via a dedicated `maintenance-monitor` worker process.
 
 Suppressed alerts create incident records in the `SUPPRESSED_MAINTENANCE` state rather than being discarded. If an active alert collides with an open actionable incident (created before maintenance began), the incident state is left unchanged while a `NOTE` event is appended. To prevent repeated polling from flooding the incident timeline with duplicate notes, a partial unique index (`incident_events_maintenance_silence_idx`) on `(incident_id, silence_id)` enforces idempotency.
 
 ### 12. SLA breach calculation runs asynchronously in the worker loop and uses wall-clock interval checks
 
-Phase 2 SLA tracking introduces severity-based response and resolution targets (for `critical` / P1 services: 5 min response / 60 min resolution; for `warning` / P2 services: 15 min response / 240 min resolution) evaluated asynchronously by the remediation worker via `check_sla_breaches()`.
+Phase 1.2 SLA tracking introduces severity-based response and resolution targets (for `critical` / P1 services: 5 min response / 60 min resolution; for `warning` / P2 services: 15 min response / 240 min resolution) evaluated asynchronously by the remediation worker via `check_sla_breaches()`.
 
 To prevent transaction freeze issues (where `NOW()` returns a static timestamp throughout a transaction), SLA queries compare `clock_timestamp()` against `detected_at + make_interval(mins => sla_..._minutes)`. When a breach occurs, the engine updates `sla_response_breached` or `sla_resolution_breached` flags, appends an `incident_event` audit entry, and increments the `sentinelops_sla_breaches_total` Prometheus counter.
 
 ### 13. Decoupled report generation and health page rendering use atomic file swaps and dedicated role permissions
 
-DESIGN.md specified generating PDF reports and exposing system health status. In Phase 2, this responsibility was decoupled from the main response worker into a standalone `report-generator` service.
+DESIGN.md specified generating PDF reports and exposing system health status. In Phase 1.2, this responsibility was decoupled from the main response worker into a standalone `report-generator` service.
 
 The service performs two periodic tasks:
 1. **Health Dashboard**: Queries PostgreSQL and the CMDB, renders `health/index.html` using Jinja2 templates, and publishes it via atomic file swap (`index.html.tmp` -> `index.html`) to prevent web clients from reading partially-written HTML.

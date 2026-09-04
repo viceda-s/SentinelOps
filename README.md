@@ -10,13 +10,13 @@ The project was built to explore how production incident response systems coordi
 
 # Current Status
 
-**Phase 1 and Phase 2 are complete, with no regressions introduced by the Phase 2 documentation pass.**
+**Phase 1.1.1 and Phase 1.1.2 are complete, with no regressions introduced by the Phase 1.2 documentation pass.**
 
 The complete autonomous incident pipeline has been implemented and validated:
 
 > detect → enrich → acknowledge → remediate → verify → resolve (or escalate) → audit
 
-Phase 1 core infrastructure includes:
+Phase 1.1.1 core infrastructure includes:
 
 * Prometheus, Alertmanager, and Grafana
 * CMDB-driven incident enrichment
@@ -30,7 +30,7 @@ Phase 1 core infrastructure includes:
 * CMDB validation
 * Operational runbooks and Architecture Decision Records (ADRs)
 
-**Phase 2** operational layer extends the platform with:
+**Phase 1.1.2** operational layer extends the platform with:
 
 * Maintenance windows and Alertmanager silence suppression (`automation/scripts/maintenance.sh`, `docker/maintenance-monitor/`)
 * Incident SLA tracking, breach calculations, and MTTR Prometheus metrics (`automation/response_engine/sla.py`, `metrics.py`)
@@ -41,7 +41,7 @@ Phase 1 core infrastructure includes:
 * Operational runbooks (`maintenance-windows.md`, `incident-closure-and-reports.md`, `backup-and-disaster-recovery.md`, `disk-cleanup.md`)
 * Architecture Decision Records 009, 010, and 011
 
-**Phase 2 Architectural Refactorings (v2.1)** enhance codebase maintainability and concurrency safety:
+**Phase 1.1.2 Architectural Refactorings (v1.2.1)** enhance codebase maintainability and concurrency safety:
 
 * Centralized domain configuration dataclasses (`automation/response_engine/config.py`)
 * Row-level PostgreSQL locking for strictly monotonic per-incident event sequence generation (`events.py`)
@@ -126,7 +126,7 @@ These principles are documented in the project's Architecture Decision Records
 
 ## Automated Remediation
 
-Implemented Phase 1 playbooks:
+Implemented Phase 1.1 playbooks:
 
 * `restart_service`
 * `collect_diagnostics`
@@ -150,7 +150,7 @@ Recovery verification supports:
   - `reset` — Remove the disk filler images.
 * `validate_cmdb.py` — Validates the CMDB configuration against alert rules and remediation playbooks.
 
-## Operational Visibility (Phase 2)
+## Operational Visibility (Phase 1.2)
 
 * Prometheus `/metrics` endpoints on the worker and webhook handler
 * Live SLA breach detection (`sentinelops_sla_breaches_total`), evaluated continuously against each incident's CMDB-defined `response_minutes`/`resolution_minutes`, not just at state transitions
@@ -183,7 +183,7 @@ The repository is intentionally split into focused documents. The README provide
 | `docs/runbooks/`                  | Operational procedures for implemented remediation playbooks                                       |
 | `docs/implementation-findings.md` | Engineering discoveries, implementation trade-offs, and lessons learned while building the project |
 
-`docs/DESIGN.md` was reconciled to v1.1 after Phase 1 shipped, folding in discoveries recorded in `docs/implementation-findings.md`; see `CHANGELOG.md` for a summary.
+`docs/DESIGN.md` was reconciled to v1.1.1 after Phase 1.1 shipped, folding in discoveries recorded in `docs/implementation-findings.md`; see `CHANGELOG.md` for a summary.
 
 ---
 
@@ -365,15 +365,15 @@ SentinelOps is intentionally designed as a local engineering lab rather than a p
 
 The remediation worker is granted access to the Docker Engine through `/var/run/docker.sock` so it can inspect containers, restart services, and collect diagnostics. The webhook handler has no Docker Engine access. This separation reduces the privileges exposed to externally reachable components while allowing the worker to perform autonomous remediation.
 
-Additional Phase 1 simplifications include:
+Additional Phase 1.1 simplifications include:
 
 * A shared Grafana administrator account configured through `GRAFANA_ADMIN_PASSWORD`.
 * Prometheus and Alertmanager exposed without authentication.
-* The Alertmanager webhook receiver (/alerts) is intentionally unauthenticated in Phase 1 because all services communicate over the project's private Docker network and the endpoint is not exposed on a host port. In a production deployment, this endpoint should be authenticated or otherwise restricted, as it creates incident records and can trigger automated container restarts.
+* The Alertmanager webhook receiver (/alerts) is intentionally unauthenticated in Phase 1.1 because all services communicate over the project's private Docker network and the endpoint is not exposed on a host port. In a production deployment, this endpoint should be authenticated or otherwise restricted, as it creates incident records and can trigger automated container restarts.
 * Local secrets stored in `.env`, which is excluded from version control.
 * Local-only chaos tooling designed to operate exclusively on this project's Docker Compose stack.
 
-Phase 2 adds two more unauthenticated nginx routes, `/health/` and `/reports/`. `/reports/` is the more sensitive of the two: incident reports include collected diagnostics (container logs and stats) and the operator-written Root Cause Analysis, and references are sequential (`INC-2026-001.pdf`, `INC-2026-002.pdf`, ...) and therefore easy to enumerate. As with the rest of Phase 1's unauthenticated surface, this is an accepted lab-only trade-off, not an oversight — a production deployment would put both routes behind authentication.
+Phase 1.2 adds two more unauthenticated nginx routes, `/health/` and `/reports/`. `/reports/` is the more sensitive of the two: incident reports include collected diagnostics (container logs and stats) and the operator-written Root Cause Analysis, and references are sequential (`INC-2026-001.pdf`, `INC-2026-002.pdf`, ...) and therefore easy to enumerate. As with the rest of Phase 1.1's unauthenticated surface, this is an accepted lab-only trade-off, not an oversight — a production deployment would put both routes behind authentication.
 
 The response engine and report generator connect to PostgreSQL as dedicated least-privilege roles (`response_engine`, `report_generator`) rather than the shared superuser credential; see `docker/postgres/init/007_create_roles.sh` for the exact grants.
 
@@ -383,7 +383,19 @@ These trade-offs are appropriate for a learning environment but would be replace
 
 # Future Work
 
-Phase 1 and Phase 2 establish the complete autonomous incident response and operational layer. **Phase 3 — Production Readiness & Extensibility** extends the platform with CI/CD automation, automated E2E chaos testing, formalized API interfaces, reliability primitives, alert correlation, and AI-assisted operations.
+Phase 1.1 and Phase 1.2 establish the complete autonomous incident response and operational layer. Future phases extend the platform with additional operational capabilities rather than changing its core architecture.
+
+### Automation
+
+* Additional remediation playbooks
+* Notification integrations
+* Automated testing
+
+### Platform
+
+* ShellCheck integration
+* CI/CD improvements
+* Cloud deployment
 
 The complete implementation priorities, architectural trade-offs, and post-v1 expansion plan are documented in `ROADMAP.md`.
 
