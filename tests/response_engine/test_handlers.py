@@ -26,7 +26,7 @@ def test_new_incident_increments_created_counter(
         severity="critical",
     )
 
-    handle_alert(db_connection, alert, CMDB)
+    handle_alert(db_connection, alert, CMDB, correlation_id="test-correlation-id")
 
     with db_connection.cursor() as cur:
         cur.execute(
@@ -62,7 +62,7 @@ def test_duplicate_alert_does_not_increment_created_counter(
     """Verify that duplicate alert does not increment created counter."""
     alert = _firing_alert()
 
-    handle_alert(db_connection, alert, CMDB)
+    handle_alert(db_connection, alert, CMDB, correlation_id="test-correlation-id")
 
     with db_connection.cursor() as cur:
         cur.execute(
@@ -77,7 +77,7 @@ def test_duplicate_alert_does_not_increment_created_counter(
         severity="critical",
     )
 
-    handle_alert(db_connection, alert, CMDB)
+    handle_alert(db_connection, alert, CMDB, correlation_id="test-correlation-id")
 
     after = counter_value(
         INCIDENTS_CREATED_TOTAL,
@@ -274,6 +274,178 @@ def test_record_note_event_defaults_payload_to_empty_dict(
         assert cur.fetchone()["payload"] == {}
 
 
+def test_ingest_alert_persists_correlation_id_in_created_event_payload(
+    db_connection,
+    committed_incident_cleanup,
+):
+    """ingest_alert writes correlation_id into the CREATED event's payload when given one."""
+    alert = _firing_alert()
+
+    incident = ingest_alert(
+        db_connection,
+        alert,
+        CMDB,
+        source="webhook_handler",
+        correlation_id="corr-abc-123",
+    )
+    db_connection.commit()
+    committed_incident_cleanup.append(incident["id"])
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT payload FROM incident_events WHERE incident_id = %s AND event_type = 'CREATED'",
+            (incident["id"],),
+        )
+        row = cur.fetchone()
+
+    assert row["payload"]["correlation_id"] == "corr-abc-123"
+
+
+def test_ingest_alert_omits_correlation_id_from_payload_when_not_given(
+    db_connection,
+    committed_incident_cleanup,
+):
+    """ingest_alert called without correlation_id (e.g. from maintenance.py) doesn't add the key at all."""
+    alert = _firing_alert()
+
+    incident = ingest_alert(
+        db_connection,
+        alert,
+        CMDB,
+        source="maintenance",
+    )
+    db_connection.commit()
+    committed_incident_cleanup.append(incident["id"])
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT payload FROM incident_events WHERE incident_id = %s AND event_type = 'CREATED'",
+            (incident["id"],),
+        )
+        row = cur.fetchone()
+
+    assert "correlation_id" not in row["payload"]
+
+
+def test_record_note_event_persists_correlation_id_when_given(
+    db_connection, make_incident
+):
+    """record_note_event writes correlation_id into the NOTE event's payload when given one."""
+    incident = make_incident(status="NEW")
+
+    record_note_event(
+        db_connection,
+        incident,
+        actor="webhook_handler",
+        message="Duplicate delivery",
+        payload={"detail": "example"},
+        correlation_id="corr-def-456",
+    )
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT payload FROM incident_events WHERE incident_id = %s AND event_type = 'NOTE'",
+            (incident["id"],),
+        )
+        row = cur.fetchone()
+
+    assert row["payload"]["correlation_id"] == "corr-def-456"
+    assert row["payload"]["detail"] == "example"  # original payload keys preserved
+
+
+def test_record_note_event_omits_correlation_id_from_payload_when_not_given(
+    db_connection, make_incident
+):
+    """record_note_event called without correlation_id (e.g. from maintenance.py) doesn't add the key."""
+    incident = make_incident(status="NEW")
+
+    record_note_event(
+        db_connection,
+        incident,
+        actor="maintenance",
+        message="Silence reconciliation note",
+        payload={"detail": "example"},
+    )
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT payload FROM incident_events WHERE incident_id = %s AND event_type = 'NOTE'",
+            (incident["id"],),
+        )
+        row = cur.fetchone()
+
+    assert "correlation_id" not in row["payload"]
+
+
+def test_correlation_id_is_queryable_via_its_expression_index(
+    db_connection, committed_incident_cleanup
+):
+    """A CREATED event can be found directly by its correlation_id via incident_events_correlation_id_idx."""
+    alert = _firing_alert()
+
+    incident = ingest_alert(
+        db_connection,
+        alert,
+        CMDB,
+        source="webhook_handler",
+        correlation_id="corr-findme-789",
+    )
+    db_connection.commit()
+    committed_incident_cleanup.append(incident["id"])
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT incident_id FROM incident_events WHERE payload ->> 'correlation_id' = %s",
+            ("corr-findme-789",),
+        )
+        rows = cur.fetchall()
+
+    assert len(rows) == 1
+    assert rows[0]["incident_id"] == incident["id"]
+
+
+def test_duplicate_delivery_records_its_own_correlation_id_without_touching_the_original(
+    db_connection, committed_incident_cleanup
+):
+    """A second webhook delivery for the same open incident's fingerprint gets its own correlation_id on the NOTE event; the CREATED event's original correlation_id is untouched."""
+    from automation.response_engine.handlers import _reconcile_duplicate_alert
+
+    alert = _firing_alert()
+
+    incident = ingest_alert(
+        db_connection,
+        alert,
+        CMDB,
+        source="webhook_handler",
+        correlation_id="corr-original-111",
+    )
+    db_connection.commit()
+    committed_incident_cleanup.append(incident["id"])
+
+    _reconcile_duplicate_alert(
+        db_connection, alert, alert["fingerprint"], correlation_id="corr-retry-222"
+    )
+    # No db_connection.commit() here -- _reconcile_duplicate_alert manages its own transaction (rollback at start, commit at end).
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT event_type, payload
+            FROM incident_events
+            WHERE incident_id = %s
+            ORDER BY sequence
+            """,
+            (incident["id"],),
+        )
+        events = cur.fetchall()
+
+    assert len(events) == 2
+    assert events[0]["event_type"] == "CREATED"
+    assert events[0]["payload"]["correlation_id"] == "corr-original-111"
+    assert events[1]["event_type"] == "NOTE"
+    assert events[1]["payload"]["correlation_id"] == "corr-retry-222"
+
+
 def test_record_note_event_persists_silence_id(db_connection, make_incident):
     """Verify that record note event persists silence id."""
     incident = make_incident(status="IN_PROGRESS")
@@ -380,7 +552,12 @@ def test_reconcile_duplicate_alert_raises_when_no_active_incident_exists(
     with pytest.raises(
         RuntimeError, match="Cannot resolve incident: no active incident exists"
     ):
-        _reconcile_duplicate_alert(db_connection, alert, alert["fingerprint"])
+        _reconcile_duplicate_alert(
+            db_connection,
+            alert,
+            alert["fingerprint"],
+            correlation_id="test-correlation-id",
+        )
 
 
 def test_reconcile_duplicate_alert_appends_note_with_webhook_actor(
@@ -397,7 +574,9 @@ def test_reconcile_duplicate_alert_appends_note_with_webhook_actor(
     db_connection.commit()
     committed_incident_cleanup.append(incident["id"])
 
-    _reconcile_duplicate_alert(db_connection, alert, alert["fingerprint"])
+    _reconcile_duplicate_alert(
+        db_connection, alert, alert["fingerprint"], correlation_id="test-correlation-id"
+    )
 
     with db_connection.cursor() as cur:
         cur.execute(

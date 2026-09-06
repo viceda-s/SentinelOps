@@ -34,6 +34,7 @@ def record_note_event(
     message: str,
     payload: dict | None = None,
     silence_id: str | None = None,
+    correlation_id: str | None = None,
 ) -> None:
     """
     Append a NOTE event to an incident's timeline.
@@ -47,6 +48,10 @@ def record_note_event(
         silence_id: Optional Alertmanager silence ID. When provided, the
             `incident_events_maintenance_silence_idx` partial unique constraint
             guarantees at most one note per (incident, silence).
+        correlation_id: Optional identifier for the inbound webhook request that
+            caused this note, merged into the stored payload when given. Callers
+            outside the webhook path (e.g. maintenance.py) have no request to
+            correlate and omit it.
 
     Raises:
         psycopg2.errors.UniqueViolation: If silence_id is specified and a note for
@@ -58,6 +63,11 @@ def record_note_event(
 
     if payload is None:
         payload = {}
+    else:
+        payload = dict(payload)  # don't mutate the caller's dict
+
+    if correlation_id is not None:
+        payload["correlation_id"] = correlation_id
 
     sequence = get_next_sequence(conn, incident["id"])
 
@@ -101,6 +111,8 @@ def ingest_alert(
     alert: dict,
     cmdb: dict,
     source: str,
+    *,
+    correlation_id: str | None = None,
 ) -> dict:
     """
     Create a NEW incident from an Alertmanager alert.
@@ -122,6 +134,12 @@ def ingest_alert(
     Transaction ownership:
         - the caller owns the transaction
         - this function MUST NOT call commit() or rollback()
+
+    Args:
+        correlation_id: Optional identifier for the inbound webhook request that
+            caused this incident, merged into the CREATED event's payload when
+            given. Callers outside the webhook path (e.g. maintenance.py) have
+            no request to correlate and omit it.
 
     Returns:
         The newly created incident row.
@@ -218,6 +236,10 @@ def ingest_alert(
             severity=incident["severity"],
         ).inc()
 
+        event_payload = dict(alert)
+        if correlation_id is not None:
+            event_payload["correlation_id"] = correlation_id
+
         cur.execute(
             """
             INSERT INTO incident_events (
@@ -244,14 +266,16 @@ def ingest_alert(
                 1,
                 source,
                 f"{alert_name} received",
-                Json(alert),
+                Json(event_payload),
             ),
         )
 
     return incident
 
 
-def handle_alert(conn: connection, alert: dict, cmdb: dict) -> None:
+def handle_alert(
+    conn: connection, alert: dict, cmdb: dict, *, correlation_id: str
+) -> None:
     """
     Process a single Alertmanager alert.
 
@@ -261,6 +285,13 @@ def handle_alert(conn: connection, alert: dict, cmdb: dict) -> None:
         - create or retrieve the incident
         - apply webhook-specific lifecycle policy
         - deduplicate duplicate Alertmanager notifications
+
+    Args:
+        correlation_id: Identifier for the inbound Alertmanager webhook HTTP
+            request that caused this call, so every incident event caused by
+            this request can be traced back to it. This function is only ever
+            called from the webhook path, which always has a request to
+            correlate.
     """
 
     # Ignore non-firing alert notifications.
@@ -315,6 +346,7 @@ def handle_alert(conn: connection, alert: dict, cmdb: dict) -> None:
             alert,
             cmdb,
             source="webhook_handler",
+            correlation_id=correlation_id,
         )
 
         _apply_webhook_lifecycle_policy(
@@ -328,7 +360,9 @@ def handle_alert(conn: connection, alert: dict, cmdb: dict) -> None:
         conn.commit()
 
     except psycopg2.errors.UniqueViolation:
-        _reconcile_duplicate_alert(conn, alert, fingerprint)
+        _reconcile_duplicate_alert(
+            conn, alert, fingerprint, correlation_id=correlation_id
+        )
 
 
 def _apply_webhook_lifecycle_policy(
@@ -360,7 +394,9 @@ def _apply_webhook_lifecycle_policy(
     return incident
 
 
-def _reconcile_duplicate_alert(conn: connection, alert: dict, fingerprint: str) -> None:
+def _reconcile_duplicate_alert(
+    conn: connection, alert: dict, fingerprint: str, *, correlation_id: str
+) -> None:
     """Handle duplicate Alertmanager notifications for active incidents."""
     conn.rollback()
 
@@ -393,6 +429,7 @@ def _reconcile_duplicate_alert(conn: connection, alert: dict, fingerprint: str) 
         actor="webhook_handler",
         message="Duplicate Alertmanager notification received",
         payload=alert,
+        correlation_id=correlation_id,
     )
 
     conn.commit()
