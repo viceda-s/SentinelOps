@@ -30,6 +30,9 @@ VERIFY_INTERVAL = 1
 RESTART_COOLDOWN = 5
 MAX_RESTART_ATTEMPTS = 2
 
+# Margin added to a container's own HEALTHCHECK interval + timeout when computing its docker-health verify deadline, to absorb scheduling jitter.
+HEALTHCHECK_VERIFY_MARGIN = 5
+
 PROMETHEUS_SETTINGS = PrometheusSettings.from_env()
 DIAGNOSTICS_SETTINGS = DiagnosticsSettings.from_env()
 
@@ -144,6 +147,20 @@ def record_attempt_finish(
         ).inc()
 
 
+def _verify_timeout_for(container, verification: dict) -> float:
+    """docker-health's deadline must cover the container's own first post-restart healthcheck probe, not just VERIFY_TIMEOUT."""
+
+    if verification["type"] != "docker-health":
+        return VERIFY_TIMEOUT
+
+    healthcheck = container.attrs.get("Config", {}).get("Healthcheck") or {}
+    interval_ns = healthcheck.get("Interval") or 0
+    timeout_ns = healthcheck.get("Timeout") or 0
+
+    first_probe_seconds = (interval_ns + timeout_ns) / 1_000_000_000
+    return max(VERIFY_TIMEOUT, first_probe_seconds + HEALTHCHECK_VERIFY_MARGIN)
+
+
 def restart_service(
     conn: connection, client: docker.DockerClient, incident: dict, cmdb: dict
 ) -> None:
@@ -207,7 +224,8 @@ def restart_service(
 
             # Poll until recovery or timeout.
 
-            deadline = time.monotonic() + VERIFY_TIMEOUT
+            verify_timeout = _verify_timeout_for(container, verification)
+            deadline = time.monotonic() + verify_timeout
             while time.monotonic() < deadline:
                 if verify_recovery(
                     client,
@@ -241,7 +259,7 @@ def restart_service(
                 attempt_number,
                 playbook,
                 result="timeout",
-                error=(f"Verification timed out after {VERIFY_TIMEOUT} seconds"),
+                error=(f"Verification timed out after {verify_timeout} seconds"),
             )
         # Record infrastructure failures for auditability, then propagate them.
 
