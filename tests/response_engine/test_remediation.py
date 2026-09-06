@@ -10,6 +10,7 @@ import pytest
 from psycopg2.extras import Json
 
 import docker
+from automation.response_engine.metrics import WORKER_HEARTBEAT_TIMESTAMP
 from automation.response_engine.remediation import (
     _verify_timeout_for,
     disk_cleanup,
@@ -1036,6 +1037,32 @@ def test_escalates_docker_health_service_whose_first_probe_lands_past_the_comput
     assert _status(db_connection, incident["id"]) == "ESCALATED"
 
 
+def _heartbeat_value() -> float:
+    return next(iter(WORKER_HEARTBEAT_TIMESTAMP.collect())).samples[0].value
+
+
+def test_restart_service_refreshes_heartbeat_during_a_long_verify_loop(
+    db_connection, make_incident, docker_client, fake_clock
+):
+    """A long docker-health verify budget must keep refreshing the worker heartbeat, or ResponseEngineDown (no `for:` grace period) would false-page during normal remediation."""
+    incident = make_incident(
+        status="ACKNOWLEDGED",
+        alert_name="ServiceDown",
+        playbook="restart_service",
+        service="cadvisor",
+    )
+
+    WORKER_HEARTBEAT_TIMESTAMP.set(0)
+    container = _fake_cadvisor_container(healthy_at_seconds=37.0, fake_clock=fake_clock)
+    docker_client.containers.get.return_value = container
+    before = time.time()
+
+    restart_service(db_connection, docker_client, incident, CADVISOR_CMDB)
+
+    # set_to_current_time() uses real time.time(), unaffected by fake_clock (which only patches monotonic/sleep).
+    assert _heartbeat_value() >= before
+
+
 def test_verify_timeout_for_extends_past_healthcheck_interval():
     """A 30s-interval healthcheck (like cadvisor's) needs more than VERIFY_TIMEOUT."""
     container = MagicMock()
@@ -1094,6 +1121,26 @@ def test_verify_timeout_for_caps_very_long_healthcheck_intervals():
     result = _verify_timeout_for(container, {"type": "docker-health"})
 
     assert result == 60
+
+
+def test_verify_timeout_for_accounts_for_start_period():
+    """StartPeriod delays the first probe too -- a container with a long start_period must not time out before it's even eligible to report healthy."""
+    container = MagicMock()
+    container.attrs = {
+        "Config": {
+            "Healthcheck": {
+                "Interval": 10_000_000_000,
+                "Timeout": 3_000_000_000,
+                "StartPeriod": 45_000_000_000,
+            }
+        }
+    }
+
+    result = _verify_timeout_for(container, {"type": "docker-health"})
+
+    assert (
+        result == 60
+    )  # start_period(45) + interval(10) + timeout(3) + margin(5) = 63, capped at 60
 
 
 def test_verify_timeout_for_does_not_crash_on_null_config():

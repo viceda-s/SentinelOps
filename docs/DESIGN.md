@@ -319,7 +319,7 @@ Nothing in this table is ever updated or deleted. I considered versioning the in
 
 `incident_events` records the incident's lifecycle: creation, state transitions, and operator or system notes. Remediation execution detail — individual restart attempts, their timing, and their verification outcome — is recorded separately in `remediation_attempts` and joined by `incident_id` when reconstructing a complete incident timeline.
 
-For services verified via `docker-health`, `restart_service`'s verification timeout is sized off the service's own Docker `HEALTHCHECK` interval and timeout (via `_verify_timeout_for()`), up to a `HEALTHCHECK_VERIFY_MAX` ceiling — a healthcheck interval + timeout beyond that ceiling can still let recovery go undetected until the next scheduled probe. Timestamps in `remediation_attempts` record real elapsed wall-clock time rather than transaction-start time.
+For services verified via `docker-health`, `restart_service`'s verification timeout is sized off the service's own Docker `HEALTHCHECK` start period, interval, and timeout (via `_verify_timeout_for()`), up to a `HEALTHCHECK_VERIFY_MAX` ceiling — a healthcheck configuration whose sum exceeds that ceiling can still let recovery go undetected until the next scheduled probe. Timestamps in `remediation_attempts` record real elapsed wall-clock time rather than transaction-start time.
 
 ---
 
