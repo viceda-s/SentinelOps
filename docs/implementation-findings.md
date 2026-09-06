@@ -287,6 +287,22 @@ service's own Docker `HEALTHCHECK` interval must be short relative to
 until the next scheduled probe. `remediation_attempts` timestamps record
 real elapsed wall-clock time, not transaction-start time."
 
+**Update (issue #59):** the interval race above reproduced in production
+against unmodified `main` and was fixed — `_verify_timeout_for()` now derives
+the verification deadline from the target container's own
+`Config.Healthcheck` (interval + timeout + a fixed margin) for `docker-health`
+verification, capped at `HEALTHCHECK_VERIFY_MAX = 60s`, instead of using the
+bare `VERIFY_TIMEOUT = 30s` for every verification type. The DESIGN.md
+constraint proposed above ("the healthcheck interval must be short relative
+to the verification timeout") is now the reverse of the fix's approach — the
+timeout is sized to the interval, not the other way around — and should be
+updated accordingly if adopted. The `HEALTHCHECK_VERIFY_MAX` cap means the
+race is only closed for containers whose `interval + timeout` stays under
+~55s; a longer upstream interval (or a `start_period`, which the derivation
+does not read) can still reproduce this finding. Issue #43
+(`RemediationSettings` / per-service CMDB verification timing) is the planned
+general fix.
+
 ## 8. The JSON logging schema evolved away from DESIGN.md's fixed `event`/`component` vocabulary
 
 DESIGN.md specifies that every log line carries `component` and `event`

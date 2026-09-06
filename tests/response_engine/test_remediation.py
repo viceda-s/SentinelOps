@@ -993,10 +993,10 @@ def _fake_cadvisor_container(healthy_at_seconds: float, fake_clock):
     return container
 
 
-def test_resolves_docker_health_service_whose_first_probe_lands_near_30s(
+def test_resolves_docker_health_service_whose_first_probe_lands_at_the_computed_deadline(
     db_connection, make_incident, docker_client, fake_clock
 ):
-    """First probe lands at 30s, cadvisor's own interval -- must resolve, not escalate."""
+    """Last poll tick for a 38s deadline is t=37 (while t < deadline) -- must still resolve there, not escalate."""
     incident = make_incident(
         status="ACKNOWLEDGED",
         alert_name="ServiceDown",
@@ -1004,7 +1004,7 @@ def test_resolves_docker_health_service_whose_first_probe_lands_near_30s(
         service="cadvisor",
     )
 
-    container = _fake_cadvisor_container(healthy_at_seconds=30.0, fake_clock=fake_clock)
+    container = _fake_cadvisor_container(healthy_at_seconds=37.0, fake_clock=fake_clock)
     docker_client.containers.get.return_value = container
 
     restart_service(db_connection, docker_client, incident, CADVISOR_CMDB)
@@ -1015,6 +1015,25 @@ def test_resolves_docker_health_service_whose_first_probe_lands_near_30s(
     assert len(attempts) == 1
     assert attempts[0]["result"] == "success"
     assert attempts[0]["attempt_number"] == 1
+
+
+def test_escalates_docker_health_service_whose_first_probe_lands_past_the_computed_deadline(
+    db_connection, make_incident, docker_client, fake_clock
+):
+    """One tick past the last poll (t=38) is genuinely past the budget -- must escalate, proving the boundary test above isn't just loose."""
+    incident = make_incident(
+        status="ACKNOWLEDGED",
+        alert_name="ServiceDown",
+        playbook="restart_service",
+        service="cadvisor",
+    )
+
+    container = _fake_cadvisor_container(healthy_at_seconds=38.0, fake_clock=fake_clock)
+    docker_client.containers.get.return_value = container
+
+    restart_service(db_connection, docker_client, incident, CADVISOR_CMDB)
+
+    assert _status(db_connection, incident["id"]) == "ESCALATED"
 
 
 def test_verify_timeout_for_extends_past_healthcheck_interval():
@@ -1043,12 +1062,56 @@ def test_verify_timeout_for_uses_default_when_healthcheck_interval_is_short():
     assert result == 30
 
 
-def test_verify_timeout_for_uses_default_when_no_healthcheck_configured():
-    """CMDB says docker-health but the image has no HEALTHCHECK -- don't crash, use the default."""
+def test_verify_timeout_for_uses_docker_defaults_when_no_healthcheck_configured():
+    """CMDB says docker-health but the image has no HEALTHCHECK -- don't crash, assume Docker's 30s/30s defaults."""
     container = MagicMock()
     container.attrs = {"Config": {"Healthcheck": None}}
 
     result = _verify_timeout_for(container, {"type": "docker-health"})
+
+    assert result == 60  # capped at HEALTHCHECK_VERIFY_MAX; 30+30+5=65 uncapped
+
+
+def test_verify_timeout_for_treats_missing_interval_as_docker_default_not_zero():
+    """A HEALTHCHECK with no explicit --interval/--timeout (like api's Dockerfile) reports no Interval/Timeout keys at all -- must not be treated as 0s."""
+    container = MagicMock()
+    container.attrs = {"Config": {"Healthcheck": {"Test": ["CMD-SHELL", "curl -f x"]}}}
+
+    result = _verify_timeout_for(container, {"type": "docker-health"})
+
+    assert result == 60  # same as the no-healthcheck case: 30+30+5=65, capped at 60
+
+
+def test_verify_timeout_for_caps_very_long_healthcheck_intervals():
+    """A container with a multi-minute healthcheck interval must not hold the deadline open indefinitely."""
+    container = MagicMock()
+    container.attrs = {
+        "Config": {
+            "Healthcheck": {"Interval": 300_000_000_000, "Timeout": 3_000_000_000}
+        }
+    }
+
+    result = _verify_timeout_for(container, {"type": "docker-health"})
+
+    assert result == 60
+
+
+def test_verify_timeout_for_does_not_crash_on_null_config():
+    """Docker inspect can report "Config": null -- must fall back to defaults, not raise."""
+    container = MagicMock()
+    container.attrs = {"Config": None}
+
+    result = _verify_timeout_for(container, {"type": "docker-health"})
+
+    assert result == 60
+
+
+def test_verify_timeout_for_does_not_crash_on_missing_verification_type():
+    """A verification dict without a "type" key must fall back to VERIFY_TIMEOUT, not raise KeyError."""
+    container = MagicMock()
+    container.attrs = {"Config": {"Healthcheck": {"Interval": 300_000_000_000}}}
+
+    result = _verify_timeout_for(container, {})
 
     assert result == 30
 
