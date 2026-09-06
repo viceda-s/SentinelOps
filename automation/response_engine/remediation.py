@@ -48,7 +48,9 @@ DIAGNOSTICS_RETENTION_DAYS = DIAGNOSTICS_SETTINGS.retention_days
 DIAGNOSTICS_DIR = DIAGNOSTICS_SETTINGS.dir_path
 
 
-def record_attempt_start(conn: connection, incident: dict, playbook: str) -> int:
+def record_attempt_start(
+    conn: connection, incident: dict, playbook: str, *, execution_id: str
+) -> int:
     """Create a remediation_attempts row for a new remediation attempt.
 
     Returns:
@@ -80,19 +82,22 @@ def record_attempt_start(conn: connection, incident: dict, playbook: str) -> int
                 incident_id,
                 playbook,
                 attempt_number,
-                started_at
+                started_at,
+                execution_id
             )
             VALUES (
                 %s,
                 %s,
                 %s,
-                clock_timestamp()
+                clock_timestamp(),
+                %s
             )
             """,
             (
                 incident["id"],
                 playbook,
                 attempt_number,
+                execution_id,
             ),
         )
 
@@ -106,6 +111,7 @@ def record_attempt_finish(
     playbook: str,
     result: str,
     *,
+    execution_id: str,
     diagnostics_path: str | None = None,
     error: str | None = None,
 ) -> None:
@@ -130,6 +136,7 @@ def record_attempt_finish(
                 error = %s
             WHERE incident_id = %s
               AND attempt_number = %s
+              AND execution_id = %s
             """,
             (
                 result,
@@ -137,6 +144,7 @@ def record_attempt_finish(
                 error,
                 incident["id"],
                 attempt_number,
+                execution_id,
             ),
         )
 

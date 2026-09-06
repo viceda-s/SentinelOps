@@ -88,6 +88,96 @@ def _attempts(db_connection, incident_id: int) -> list[dict]:
         return cur.fetchall()
 
 
+def test_record_attempt_start_persists_execution_id(db_connection, make_incident):
+    """record_attempt_start writes the given execution_id onto the new row."""
+    from automation.response_engine.remediation import record_attempt_start
+
+    incident = make_incident(status="ACKNOWLEDGED")
+
+    record_attempt_start(
+        db_connection,
+        incident,
+        "restart_service",
+        execution_id="11111111-1111-1111-1111-111111111111",
+    )
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT execution_id FROM remediation_attempts WHERE incident_id = %s",
+            (incident["id"],),
+        )
+        row = cur.fetchone()
+
+    assert str(row["execution_id"]) == "11111111-1111-1111-1111-111111111111"
+
+
+def test_record_attempt_finish_requires_matching_execution_id(
+    db_connection, make_incident
+):
+    """record_attempt_finish's WHERE clause rejects a mismatched execution_id even with a correct attempt_number."""
+    from automation.response_engine.remediation import (
+        record_attempt_finish,
+        record_attempt_start,
+    )
+
+    incident = make_incident(status="ACKNOWLEDGED")
+
+    attempt_number = record_attempt_start(
+        db_connection,
+        incident,
+        "restart_service",
+        execution_id="22222222-2222-2222-2222-222222222222",
+    )
+
+    with pytest.raises(RuntimeError, match="does not exist"):
+        record_attempt_finish(
+            db_connection,
+            incident,
+            attempt_number,
+            "restart_service",
+            result="success",
+            execution_id="33333333-3333-3333-3333-333333333333",  # wrong id, correct attempt_number
+        )
+
+
+def test_record_attempt_finish_succeeds_with_matching_execution_id(
+    db_connection, make_incident
+):
+    """record_attempt_finish succeeds when execution_id matches the row it started."""
+    from automation.response_engine.remediation import (
+        record_attempt_finish,
+        record_attempt_start,
+    )
+
+    incident = make_incident(status="ACKNOWLEDGED")
+
+    attempt_number = record_attempt_start(
+        db_connection,
+        incident,
+        "restart_service",
+        execution_id="44444444-4444-4444-4444-444444444444",
+    )
+
+    record_attempt_finish(
+        db_connection,
+        incident,
+        attempt_number,
+        "restart_service",
+        result="success",
+        execution_id="44444444-4444-4444-4444-444444444444",
+    )
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT result, finished_at FROM remediation_attempts WHERE incident_id = %s",
+            (incident["id"],),
+        )
+        row = cur.fetchone()
+
+    assert row["result"] == "success"
+    assert row["finished_at"] is not None
+
+
 def test_resolves_when_cleanup_frees_enough_space(
     db_connection, make_incident, docker_client
 ):
