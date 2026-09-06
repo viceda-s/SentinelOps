@@ -302,6 +302,7 @@ def handle_alert(
             extra={
                 "status": alert.get("status"),
                 "fingerprint": alert.get("fingerprint"),
+                "correlation_id": correlation_id,
             },
         )
         return
@@ -337,6 +338,7 @@ def handle_alert(
                 "alert": alert_name,
                 "cmdb_playbook": playbook,
                 "alertmanager_playbook": alertmanager_playbook,
+                "correlation_id": correlation_id,
             },
         )
 

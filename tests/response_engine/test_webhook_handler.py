@@ -41,7 +41,8 @@ def test_alerts_route_generates_a_correlation_id_and_passes_it_to_handle_alert()
 
     with (
         patch(
-            "automation.response_engine.webhook_handler.handle_alert"
+            "automation.response_engine.webhook_handler.handle_alert",
+            autospec=True,
         ) as mock_handle_alert,
         patch("automation.response_engine.webhook_handler.get_connection"),
     ):
@@ -89,7 +90,8 @@ def test_alerts_route_reuses_one_correlation_id_for_every_alert_in_the_batch():
 
     with (
         patch(
-            "automation.response_engine.webhook_handler.handle_alert"
+            "automation.response_engine.webhook_handler.handle_alert",
+            autospec=True,
         ) as mock_handle_alert,
         patch("automation.response_engine.webhook_handler.get_connection"),
     ):

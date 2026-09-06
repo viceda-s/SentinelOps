@@ -53,6 +53,8 @@ def alerts() -> tuple[str, int] | tuple[Response, int]:
     """
 
     try:
+        correlation_id = str(uuid.uuid4())
+
         payload = request.get_json()
 
         if not isinstance(payload, dict):
@@ -66,8 +68,6 @@ def alerts() -> tuple[str, int] | tuple[Response, int]:
             return jsonify(
                 error="'alerts' must be a list.",
             ), 400
-
-        correlation_id = str(uuid.uuid4())
 
         with get_connection() as conn:
             for alert in alerts:
@@ -89,6 +89,7 @@ def alerts() -> tuple[str, int] | tuple[Response, int]:
         logger.warning(
             "Malformed Alertmanager payload.",
             exc_info=True,
+            extra={"correlation_id": correlation_id},
         )
 
         return jsonify(
@@ -98,6 +99,7 @@ def alerts() -> tuple[str, int] | tuple[Response, int]:
     except Exception:
         logger.exception(
             "Failed to process Alertmanager webhook.",
+            extra={"correlation_id": correlation_id},
         )
 
         return jsonify(
