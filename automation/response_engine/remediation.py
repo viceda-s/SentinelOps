@@ -21,7 +21,7 @@ from psycopg2.extensions import connection
 import docker
 
 from .config import DiagnosticsSettings, PrometheusSettings
-from .metrics import REMEDIATION_ATTEMPTS_TOTAL
+from .metrics import REMEDIATION_ATTEMPTS_TOTAL, WORKER_HEARTBEAT_TIMESTAMP
 from .state_machine import transition
 from .verification import verify_recovery
 
@@ -29,6 +29,15 @@ VERIFY_TIMEOUT = 30
 VERIFY_INTERVAL = 1
 RESTART_COOLDOWN = 5
 MAX_RESTART_ATTEMPTS = 2
+
+# Margin added to a container's own HEALTHCHECK interval + timeout when computing its docker-health verify deadline, to absorb scheduling jitter.
+HEALTHCHECK_VERIFY_MARGIN = 5
+
+# Docker's own daemon default when a HEALTHCHECK doesn't set --interval/--timeout explicitly (both default to 30s).
+DOCKER_DEFAULT_HEALTHCHECK_NS = 30_000_000_000
+
+# Upper bound on the docker-health verify deadline, so a container with a pathologically long healthcheck interval can't hold the worker's open transaction indefinitely; the heartbeat itself is refreshed inside the poll loop below, independent of this cap.
+HEALTHCHECK_VERIFY_MAX = 60
 
 PROMETHEUS_SETTINGS = PrometheusSettings.from_env()
 DIAGNOSTICS_SETTINGS = DiagnosticsSettings.from_env()
@@ -144,6 +153,25 @@ def record_attempt_finish(
         ).inc()
 
 
+def _verify_timeout_for(container, verification: dict) -> float:
+    """docker-health's deadline must cover the container's own first post-restart healthcheck probe, not just VERIFY_TIMEOUT."""
+
+    if verification.get("type") != "docker-health":
+        return VERIFY_TIMEOUT
+
+    healthcheck = (container.attrs.get("Config") or {}).get("Healthcheck") or {}
+    # A missing or explicit-0 Interval/Timeout means "use Docker's own 30s daemon default", not zero; StartPeriod's own default is genuinely 0.
+    interval_ns = healthcheck.get("Interval") or DOCKER_DEFAULT_HEALTHCHECK_NS
+    timeout_ns = healthcheck.get("Timeout") or DOCKER_DEFAULT_HEALTHCHECK_NS
+    start_period_ns = healthcheck.get("StartPeriod") or 0
+
+    first_probe_seconds = (start_period_ns + interval_ns + timeout_ns) / 1_000_000_000
+    return min(
+        HEALTHCHECK_VERIFY_MAX,
+        max(VERIFY_TIMEOUT, first_probe_seconds + HEALTHCHECK_VERIFY_MARGIN),
+    )
+
+
 def restart_service(
     conn: connection, client: docker.DockerClient, incident: dict, cmdb: dict
 ) -> None:
@@ -207,8 +235,11 @@ def restart_service(
 
             # Poll until recovery or timeout.
 
-            deadline = time.monotonic() + VERIFY_TIMEOUT
+            verify_timeout = _verify_timeout_for(container, verification)
+            deadline = time.monotonic() + verify_timeout
             while time.monotonic() < deadline:
+                # Refresh the heartbeat so a long-but-legitimate verify loop doesn't trip ResponseEngineDown (no `for:` grace period).
+                WORKER_HEARTBEAT_TIMESTAMP.set_to_current_time()
                 if verify_recovery(
                     client,
                     container_name,
@@ -241,7 +272,7 @@ def restart_service(
                 attempt_number,
                 playbook,
                 result="timeout",
-                error=(f"Verification timed out after {VERIFY_TIMEOUT} seconds"),
+                error=(f"Verification timed out after {verify_timeout} seconds"),
             )
         # Record infrastructure failures for auditability, then propagate them.
 

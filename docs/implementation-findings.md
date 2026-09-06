@@ -287,6 +287,32 @@ service's own Docker `HEALTHCHECK` interval must be short relative to
 until the next scheduled probe. `remediation_attempts` timestamps record
 real elapsed wall-clock time, not transaction-start time."
 
+**Update (issue #59):** the interval race above reproduced in production
+against unmodified `main` and was fixed — `_verify_timeout_for()` now derives
+the verification deadline from the target container's own
+`Config.Healthcheck` (`start_period` + interval + timeout + a fixed margin)
+for `docker-health` verification, capped at `HEALTHCHECK_VERIFY_MAX = 60s`,
+instead of using the bare `VERIFY_TIMEOUT = 30s` for every verification type.
+The DESIGN.md constraint proposed above ("the healthcheck interval must be
+short relative to the verification timeout") is now the reverse of the fix's
+approach — the timeout is sized to the interval, not the other way around —
+and should be updated accordingly if adopted. The `HEALTHCHECK_VERIFY_MAX`
+cap means the race is only closed for containers whose
+`start_period + interval + timeout` stays under ~55s; a longer upstream
+value than that can still reproduce this finding. A first version of this
+fix omitted `start_period` from the derivation entirely (only summing
+interval + timeout), which review caught before merge: a container with a
+meaningful `start_period` would still have escalated spuriously via the same
+race, just through a different `HEALTHCHECK` field. Also caught in the same
+review round: extending the per-attempt budget past 30s meant `restart_service`
+could block the worker loop long enough to starve `WORKER_HEARTBEAT_TIMESTAMP`
+past the `ResponseEngineDown` alert's 30s threshold (that alert has no `for:`
+grace period, unlike every other rule in `alerts.yml`) — fixed by refreshing
+the heartbeat on every poll tick inside the verification loop itself, not by
+shrinking the cap. Issue #43
+(`RemediationSettings` / per-service CMDB verification timing) is the planned
+general fix.
+
 ## 8. The JSON logging schema evolved away from DESIGN.md's fixed `event`/`component` vocabulary
 
 DESIGN.md specifies that every log line carries `component` and `event`
