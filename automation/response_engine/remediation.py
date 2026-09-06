@@ -14,6 +14,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from psycopg2.extensions import connection
@@ -209,10 +210,12 @@ def restart_service(
     verification = service["verification"]
 
     for attempt in range(1, MAX_RESTART_ATTEMPTS + 1):
+        execution_id = str(uuid.uuid4())
         attempt_number = record_attempt_start(
             conn,
             incident,
             playbook,
+            execution_id=execution_id,
         )
         try:
             # 1. Container must exist.
@@ -227,6 +230,7 @@ def restart_service(
                     attempt_number,
                     playbook,
                     result="failure",
+                    execution_id=execution_id,
                     error=str(e),
                 )
                 incident = transition(
@@ -259,6 +263,7 @@ def restart_service(
                         attempt_number,
                         playbook,
                         result="success",
+                        execution_id=execution_id,
                     )
 
                     incident = transition(
@@ -280,6 +285,7 @@ def restart_service(
                 attempt_number,
                 playbook,
                 result="timeout",
+                execution_id=execution_id,
                 error=(f"Verification timed out after {verify_timeout} seconds"),
             )
         # Record infrastructure failures for auditability, then propagate them.
@@ -291,6 +297,7 @@ def restart_service(
                 attempt_number,
                 playbook,
                 result="failure",
+                execution_id=execution_id,
                 error=str(e),
             )
             raise
@@ -333,10 +340,12 @@ def collect_diagnostics(
     playbook = "collect_diagnostics"
     service = cmdb["services"][incident["service"]]
     container_name = service["container_name"]
+    execution_id = str(uuid.uuid4())
     attempt_number = record_attempt_start(
         conn,
         incident,
         playbook,
+        execution_id=execution_id,
     )
 
     try:
@@ -352,6 +361,7 @@ def collect_diagnostics(
                 attempt_number,
                 playbook,
                 result="failure",
+                execution_id=execution_id,
                 error=str(e),
             )
             incident = transition(
@@ -392,6 +402,7 @@ def collect_diagnostics(
             attempt_number,
             playbook,
             result="success",
+            execution_id=execution_id,
             diagnostics_path=str(diagnostics_path),
         )
         incident = transition(
@@ -411,6 +422,7 @@ def collect_diagnostics(
             attempt_number,
             playbook,
             result="failure",
+            execution_id=execution_id,
             error=str(e),
         )
         raise
@@ -424,6 +436,7 @@ def collect_diagnostics(
             attempt_number,
             playbook,
             result="failure",
+            execution_id=execution_id,
             error=str(e),
         )
 
@@ -688,10 +701,12 @@ def disk_cleanup(
         return
 
     playbook = "disk_cleanup"
+    execution_id = str(uuid.uuid4())
     attempt_number = record_attempt_start(
         conn,
         incident,
         playbook,
+        execution_id=execution_id,
     )
 
     try:
@@ -708,6 +723,7 @@ def disk_cleanup(
                 attempt_number,
                 playbook,
                 result="failure",
+                execution_id=execution_id,
                 error=str(e),
             )
             incident = transition(
@@ -735,6 +751,7 @@ def disk_cleanup(
                 attempt_number,
                 playbook,
                 result="failure",
+                execution_id=execution_id,
                 error=(
                     "Alert did not carry instance/mountpoint labels; "
                     "cannot verify recovery"
@@ -762,6 +779,7 @@ def disk_cleanup(
                 attempt_number,
                 playbook,
                 result="failure",
+                execution_id=execution_id,
                 error=last_error or "disk measurement unavailable",
             )
             transition(
@@ -781,6 +799,7 @@ def disk_cleanup(
             attempt_number,
             playbook,
             result="success",
+            execution_id=execution_id,
         )
 
         if percent_free >= DISK_PRESSURE_FREE_PERCENT:
@@ -817,6 +836,7 @@ def disk_cleanup(
             attempt_number,
             playbook,
             result="failure",
+            execution_id=execution_id,
             error=str(e),
         )
         raise

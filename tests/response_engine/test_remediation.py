@@ -4,6 +4,7 @@ import os
 import time
 import urllib.error
 import urllib.parse
+import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -86,6 +87,23 @@ def _attempts(db_connection, incident_id: int) -> list[dict]:
             (incident_id,),
         )
         return cur.fetchall()
+
+
+def _execution_ids(db_connection, incident_id: int) -> list[str]:
+    with db_connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT execution_id
+            FROM remediation_attempts
+            WHERE incident_id = %s
+            ORDER BY attempt_number
+            """,
+            (incident_id,),
+        )
+        return [
+            str(row["execution_id"]) if row["execution_id"] else None
+            for row in cur.fetchall()
+        ]
 
 
 def test_record_attempt_start_persists_execution_id(db_connection, make_incident):
@@ -176,6 +194,31 @@ def test_record_attempt_finish_succeeds_with_matching_execution_id(
 
     assert row["result"] == "success"
     assert row["finished_at"] is not None
+
+
+def test_execution_id_is_queryable(db_connection, make_incident):
+    """A remediation_attempts row can be looked up directly by execution_id."""
+    from automation.response_engine.remediation import record_attempt_start
+
+    incident = make_incident(status="ACKNOWLEDGED")
+    target_execution_id = "55555555-5555-5555-5555-555555555555"
+
+    record_attempt_start(
+        db_connection, incident, "restart_service", execution_id=target_execution_id
+    )
+    record_attempt_start(
+        db_connection, incident, "restart_service", execution_id=str(uuid.uuid4())
+    )
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT incident_id, attempt_number FROM remediation_attempts WHERE execution_id = %s",
+            (target_execution_id,),
+        )
+        rows = cur.fetchall()
+
+    assert len(rows) == 1
+    assert rows[0]["incident_id"] == incident["id"]
 
 
 def test_resolves_when_cleanup_frees_enough_space(
@@ -1151,6 +1194,63 @@ def test_restart_service_refreshes_heartbeat_during_a_long_verify_loop(
 
     # set_to_current_time() uses real time.time(), unaffected by fake_clock (which only patches monotonic/sleep).
     assert _heartbeat_value() >= before
+
+
+def test_restart_service_gives_each_retry_attempt_a_distinct_execution_id(
+    db_connection, make_incident, docker_client, fake_clock
+):
+    """Two restart attempts (MAX_RESTART_ATTEMPTS=2) each get their own execution_id, both persisted."""
+    incident = make_incident(
+        status="ACKNOWLEDGED",
+        alert_name="ServiceDown",
+        playbook="restart_service",
+        service="cadvisor",
+    )
+
+    # health never becomes "healthy" -- both attempts time out and escalate,
+    # guaranteeing two remediation_attempts rows to compare.
+    container = _fake_cadvisor_container(
+        healthy_at_seconds=9999.0, fake_clock=fake_clock
+    )
+    docker_client.containers.get.return_value = container
+
+    restart_service(db_connection, docker_client, incident, CADVISOR_CMDB)
+
+    assert _status(db_connection, incident["id"]) == "ESCALATED"
+
+    attempts = _execution_ids(db_connection, incident["id"])
+    assert len(attempts) == 2
+    assert attempts[0] is not None
+    assert attempts[1] is not None
+    assert attempts[0] != attempts[1]
+
+
+def test_collect_diagnostics_persists_an_execution_id(
+    db_connection, make_incident, docker_client, tmp_path
+):
+    """collect_diagnostics's single attempt gets a non-null execution_id."""
+    from unittest.mock import MagicMock, patch
+
+    from automation.response_engine.remediation import collect_diagnostics
+
+    incident = make_incident(
+        status="ACKNOWLEDGED",
+        alert_name="ServiceDown",
+        playbook="collect_diagnostics",
+        service="cadvisor",
+    )
+
+    container = MagicMock()
+    container.logs.return_value = b"log line"
+    container.stats.return_value = {"cpu": 1}
+    docker_client.containers.get.return_value = container
+
+    with patch("automation.response_engine.remediation.DIAGNOSTICS_DIR", tmp_path):
+        collect_diagnostics(db_connection, docker_client, incident, CADVISOR_CMDB)
+
+    attempts = _execution_ids(db_connection, incident["id"])
+    assert len(attempts) == 1
+    assert attempts[0] is not None
 
 
 def test_verify_timeout_for_extends_past_healthcheck_interval():
