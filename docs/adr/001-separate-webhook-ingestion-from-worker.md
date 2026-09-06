@@ -31,3 +31,19 @@ The two services communicate only through durable state stored in PostgreSQL. Ne
 - Only the remediation worker requires access to the Docker Engine, reducing the privileges of the externally reachable webhook service.
 - The two services can be restarted, scaled, or deployed independently.
 - Durable coordination between the two processes becomes a requirement, making PostgreSQL the system of record for incident processing.
+
+## Idempotency
+
+Webhook delivery is idempotent via alert fingerprint. `incidents_active_fingerprint_idx`
+(`docker/postgres/init/002_incidents.sql`) guarantees at most one open incident
+(`NEW`/`ACKNOWLEDGED`/`IN_PROGRESS`/`ESCALATED`) per fingerprint. A duplicate
+delivery for an already-open incident's fingerprint appends a `NOTE` event
+(`handlers.py`, `record_note_event`, via `_reconcile_duplicate_alert`) and
+creates no new row. Once an incident reaches a terminal-for-dedup state
+(`RESOLVED`/`CLOSED`/`SUPPRESSED_MAINTENANCE`), the same fingerprint may
+create a new incident — this is intentional: a resolved alert that re-fires
+later is a new occurrence, not a duplicate of the old one.
+
+No separate idempotency key or delivery ledger exists or is planned — this
+fingerprint mechanism is the complete, documented answer to "how is webhook
+delivery idempotency handled."
