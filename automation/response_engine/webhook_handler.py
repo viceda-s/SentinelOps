@@ -8,6 +8,7 @@ and exposing Prometheus metrics (`/metrics`).
 from __future__ import annotations
 
 import logging
+import uuid
 
 from flask import Flask, Response, jsonify, request
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -66,12 +67,15 @@ def alerts() -> tuple[str, int] | tuple[Response, int]:
                 error="'alerts' must be a list.",
             ), 400
 
+        correlation_id = str(uuid.uuid4())
+
         with get_connection() as conn:
             for alert in alerts:
                 handle_alert(
                     conn,
                     alert,
                     cmdb,
+                    correlation_id=correlation_id,
                 )
 
         return "", 200
