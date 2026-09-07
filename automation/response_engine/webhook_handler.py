@@ -8,6 +8,7 @@ and exposing Prometheus metrics (`/metrics`).
 from __future__ import annotations
 
 import logging
+import uuid
 
 from flask import Flask, Response, jsonify, request
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -52,6 +53,8 @@ def alerts() -> tuple[str, int] | tuple[Response, int]:
     """
 
     try:
+        correlation_id = str(uuid.uuid4())
+
         payload = request.get_json()
 
         if not isinstance(payload, dict):
@@ -72,6 +75,7 @@ def alerts() -> tuple[str, int] | tuple[Response, int]:
                     conn,
                     alert,
                     cmdb,
+                    correlation_id=correlation_id,
                 )
 
         return "", 200
@@ -85,6 +89,7 @@ def alerts() -> tuple[str, int] | tuple[Response, int]:
         logger.warning(
             "Malformed Alertmanager payload.",
             exc_info=True,
+            extra={"correlation_id": correlation_id},
         )
 
         return jsonify(
@@ -94,6 +99,7 @@ def alerts() -> tuple[str, int] | tuple[Response, int]:
     except Exception:
         logger.exception(
             "Failed to process Alertmanager webhook.",
+            extra={"correlation_id": correlation_id},
         )
 
         return jsonify(
