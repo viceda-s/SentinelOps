@@ -4,7 +4,6 @@ import os
 import time
 import urllib.error
 import urllib.parse
-import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -106,27 +105,42 @@ def _execution_ids(db_connection, incident_id: int) -> list[str]:
         ]
 
 
-def test_record_attempt_start_persists_execution_id(db_connection, make_incident):
-    """record_attempt_start writes the given execution_id onto the new row."""
+def test_record_attempt_start_generates_and_persists_an_execution_id(
+    db_connection, make_incident
+):
+    """record_attempt_start generates its own execution_id, persists it, and returns it alongside attempt_number."""
     from automation.response_engine.remediation import record_attempt_start
 
     incident = make_incident(status="ACKNOWLEDGED")
 
-    record_attempt_start(
-        db_connection,
-        incident,
-        "restart_service",
-        execution_id="11111111-1111-1111-1111-111111111111",
+    attempt_number, execution_id = record_attempt_start(
+        db_connection, incident, "restart_service"
     )
+
+    assert execution_id is not None
 
     with db_connection.cursor() as cur:
         cur.execute(
-            "SELECT execution_id FROM remediation_attempts WHERE incident_id = %s",
-            (incident["id"],),
+            "SELECT execution_id FROM remediation_attempts WHERE incident_id = %s AND attempt_number = %s",
+            (incident["id"], attempt_number),
         )
         row = cur.fetchone()
 
-    assert str(row["execution_id"]) == "11111111-1111-1111-1111-111111111111"
+    assert str(row["execution_id"]) == execution_id
+
+
+def test_record_attempt_start_gives_each_call_a_distinct_execution_id(
+    db_connection, make_incident
+):
+    """Two record_attempt_start calls for the same incident never share an execution_id."""
+    from automation.response_engine.remediation import record_attempt_start
+
+    incident = make_incident(status="ACKNOWLEDGED")
+
+    _, execution_id_1 = record_attempt_start(db_connection, incident, "restart_service")
+    _, execution_id_2 = record_attempt_start(db_connection, incident, "restart_service")
+
+    assert execution_id_1 != execution_id_2
 
 
 def test_record_attempt_finish_requires_matching_execution_id(
@@ -140,12 +154,7 @@ def test_record_attempt_finish_requires_matching_execution_id(
 
     incident = make_incident(status="ACKNOWLEDGED")
 
-    attempt_number = record_attempt_start(
-        db_connection,
-        incident,
-        "restart_service",
-        execution_id="22222222-2222-2222-2222-222222222222",
-    )
+    attempt_number, _ = record_attempt_start(db_connection, incident, "restart_service")
 
     with pytest.raises(RuntimeError, match="does not exist"):
         record_attempt_finish(
@@ -169,11 +178,8 @@ def test_record_attempt_finish_succeeds_with_matching_execution_id(
 
     incident = make_incident(status="ACKNOWLEDGED")
 
-    attempt_number = record_attempt_start(
-        db_connection,
-        incident,
-        "restart_service",
-        execution_id="44444444-4444-4444-4444-444444444444",
+    attempt_number, execution_id = record_attempt_start(
+        db_connection, incident, "restart_service"
     )
 
     record_attempt_finish(
@@ -182,7 +188,7 @@ def test_record_attempt_finish_succeeds_with_matching_execution_id(
         attempt_number,
         "restart_service",
         result="success",
-        execution_id="44444444-4444-4444-4444-444444444444",
+        execution_id=execution_id,
     )
 
     with db_connection.cursor() as cur:
@@ -201,14 +207,11 @@ def test_execution_id_is_queryable(db_connection, make_incident):
     from automation.response_engine.remediation import record_attempt_start
 
     incident = make_incident(status="ACKNOWLEDGED")
-    target_execution_id = "55555555-5555-5555-5555-555555555555"
 
-    record_attempt_start(
-        db_connection, incident, "restart_service", execution_id=target_execution_id
+    _, target_execution_id = record_attempt_start(
+        db_connection, incident, "restart_service"
     )
-    record_attempt_start(
-        db_connection, incident, "restart_service", execution_id=str(uuid.uuid4())
-    )
+    record_attempt_start(db_connection, incident, "restart_service")
 
     with db_connection.cursor() as cur:
         cur.execute(

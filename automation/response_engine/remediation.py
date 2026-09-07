@@ -50,16 +50,22 @@ DIAGNOSTICS_DIR = DIAGNOSTICS_SETTINGS.dir_path
 
 
 def record_attempt_start(
-    conn: connection, incident: dict, playbook: str, *, execution_id: str
-) -> int:
+    conn: connection, incident: dict, playbook: str
+) -> tuple[int, str]:
     """Create a remediation_attempts row for a new remediation attempt.
 
+    Generates and owns execution_id, so every caller gets a fresh, correctly
+    persisted id without having to generate one itself and keep it in sync
+    with the matching record_attempt_finish() call.
+
     Returns:
-        The allocated attempt_number.
+        A (attempt_number, execution_id) tuple identifying the new row.
 
     The caller owns the transaction.
     This function MUST NOT call commit() or rollback().
     """
+
+    execution_id = str(uuid.uuid4())
 
     with conn.cursor() as cur:
         # Allocate the next attempt number for this incident.
@@ -102,7 +108,7 @@ def record_attempt_start(
             ),
         )
 
-    return attempt_number
+    return attempt_number, execution_id
 
 
 def record_attempt_finish(
@@ -149,11 +155,12 @@ def record_attempt_finish(
             ),
         )
 
-        # Defensive check: caller should only finish an attempt that exists.
+        # Defensive check: rowcount is 0 if the attempt doesn't exist, or if execution_id doesn't match the one record_attempt_start returned for it.
 
         if cur.rowcount != 1:
             raise RuntimeError(
-                f"Attempt {attempt_number} does not exist for incident {incident['reference']}"
+                f"Attempt {attempt_number} for incident {incident['reference']} does not exist, "
+                f"or its execution_id does not match {execution_id!r}"
             )
 
         REMEDIATION_ATTEMPTS_TOTAL.labels(
@@ -210,12 +217,10 @@ def restart_service(
     verification = service["verification"]
 
     for attempt in range(1, MAX_RESTART_ATTEMPTS + 1):
-        execution_id = str(uuid.uuid4())
-        attempt_number = record_attempt_start(
+        attempt_number, execution_id = record_attempt_start(
             conn,
             incident,
             playbook,
-            execution_id=execution_id,
         )
         try:
             # 1. Container must exist.
@@ -340,12 +345,10 @@ def collect_diagnostics(
     playbook = "collect_diagnostics"
     service = cmdb["services"][incident["service"]]
     container_name = service["container_name"]
-    execution_id = str(uuid.uuid4())
-    attempt_number = record_attempt_start(
+    attempt_number, execution_id = record_attempt_start(
         conn,
         incident,
         playbook,
-        execution_id=execution_id,
     )
 
     try:
@@ -701,12 +704,10 @@ def disk_cleanup(
         return
 
     playbook = "disk_cleanup"
-    execution_id = str(uuid.uuid4())
-    attempt_number = record_attempt_start(
+    attempt_number, execution_id = record_attempt_start(
         conn,
         incident,
         playbook,
-        execution_id=execution_id,
     )
 
     try:
