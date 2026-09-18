@@ -5,6 +5,6 @@
 #   pip index versions <dependency>
 
 prometheus-client==0.26.0
-psycopg2-binary==2.9.12
+psycopg2-binary==2.9.13
 PyYAML==6.0.3
 requests==2.34.2
