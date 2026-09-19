@@ -28,12 +28,6 @@ CMDB = {
 
 
 @pytest.fixture
-def docker_client():
-    """A Docker client whose prune calls all succeed and record their arguments."""
-    return MagicMock()
-
-
-@pytest.fixture
 def fake_clock():
     """
     A monotonic clock that only advances when code calls time.sleep(), so

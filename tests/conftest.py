@@ -3,10 +3,13 @@ from __future__ import annotations
 import itertools
 import os
 from datetime import datetime, timezone
+from unittest.mock import MagicMock
 
 import psycopg2
 import pytest
 from psycopg2.extras import Json, RealDictCursor
+
+from automation.response_engine.config import DatabaseSettings
 
 
 def _load_test_env() -> None:
@@ -48,14 +51,26 @@ _reference_counter = itertools.count(1)
 
 
 @pytest.fixture
-def db_connection():
-    """Verify that db connection."""
-    conn = psycopg2.connect(
+def database_settings() -> DatabaseSettings:
+    """Connection settings for the test database, read once from the environment."""
+    return DatabaseSettings(
         host=os.environ.get("POSTGRES_HOST", "localhost"),
         port=int(os.environ.get("POSTGRES_PORT", "5432")),
         dbname=required_env("POSTGRES_DB"),
         user=required_env("POSTGRES_USER"),
         password=required_env("POSTGRES_PASSWORD"),
+    )
+
+
+@pytest.fixture
+def db_connection(database_settings):
+    """Verify that db connection."""
+    conn = psycopg2.connect(
+        host=database_settings.host,
+        port=database_settings.port,
+        dbname=database_settings.dbname,
+        user=database_settings.user,
+        password=database_settings.password,
         options="-c statement_timeout=5000",
         cursor_factory=RealDictCursor,
     )
@@ -68,7 +83,7 @@ def db_connection():
 
 
 @pytest.fixture
-def committed_incident_cleanup():
+def committed_incident_cleanup(database_settings):
     """
     Track incident ids that a test commits directly to the database.
 
@@ -78,11 +93,11 @@ def committed_incident_cleanup():
     assertion fails partway through the test.
     """
     conn = psycopg2.connect(
-        host=os.environ.get("POSTGRES_HOST", "localhost"),
-        port=int(os.environ.get("POSTGRES_PORT", "5432")),
-        dbname=required_env("POSTGRES_DB"),
-        user=required_env("POSTGRES_USER"),
-        password=required_env("POSTGRES_PASSWORD"),
+        host=database_settings.host,
+        port=database_settings.port,
+        dbname=database_settings.dbname,
+        user=database_settings.user,
+        password=database_settings.password,
         options="-c statement_timeout=5000",
         cursor_factory=RealDictCursor,
     )
@@ -154,3 +169,9 @@ def make_incident(db_connection):
             return cur.fetchone()
 
     return _make_incident
+
+
+@pytest.fixture
+def docker_client():
+    """A Docker client whose call succeed and record their arguments."""
+    return MagicMock()
