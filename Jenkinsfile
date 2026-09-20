@@ -73,7 +73,9 @@ pipeline {
                 sh '''
                     for image in api webhook-handler worker report-generator; do
                         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \\
+                            -v "$WORKSPACE/.trivyignore:/.trivyignore" \\
                             aquasec/trivy:latest image --exit-code 1 --severity HIGH,CRITICAL \\
+                            --ignorefile /.trivyignore \\
                             sentinelops/$image:jenkins-${BUILD_NUMBER}
                     done
                 '''
