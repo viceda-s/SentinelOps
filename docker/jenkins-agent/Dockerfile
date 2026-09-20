@@ -1,3 +1,5 @@
+FROM node:22-slim AS node
+
 FROM jenkins/inbound-agent:3391.va_37fa_a_305d6d-3-jdk21
 
 USER root
@@ -17,6 +19,13 @@ RUN apt-get update && \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends python3 python3-venv shellcheck postgresql-client && \
     rm -rf /var/lib/apt/lists/*
+
+# Node.js for the pinned release-please CLI below, copied from the official image -- NodeSource's install script failed intermittently with npm network errors in this build context.
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
+    npm install -g release-please@17.11.2
 
 # The bound socket's GID varies by host platform (Docker Desktop often presents GID 0/root) -- join whichever group already owns that GID, or create one if none does, so this Dockerfile works unmodified on any machine.
 ARG DOCKER_GID
