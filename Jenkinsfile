@@ -48,12 +48,12 @@ pipeline {
             }
         }
         stage('Quality Gate') {
-            tools {
-                'hudson.plugins.sonar.SonarRunnerInstallation' 'SonarScanner'
-            }
             steps {
-                withSonarQubeEnv('SonarCloud') {
-                    sh 'sonar-scanner'
+                script {
+                    def scannerHome = tool 'SonarScanner'
+                    withSonarQubeEnv('SonarCloud') {
+                        sh "${scannerHome}/bin/sonar-scanner"
+                    }
                 }
                 timeout(time: 5, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
