@@ -34,6 +34,9 @@ pipeline {
         }
 
         stage('Build & Test') {
+            environment {
+                POSTGRES_HOST = 'postgres'
+            }
             steps {
                 sh 'cp .env.test .env'
                 sh 'docker compose up -d postgres'
