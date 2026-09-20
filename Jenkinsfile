@@ -64,6 +64,23 @@ pipeline {
                 }
             }
         }
+        stage('Release Please') {
+            when { branch 'main' }
+            steps {
+                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                    withCredentials([string(credentialsId: 'github-pat', variable: 'GITHUB_TOKEN')]) {
+                        sh '''
+                            release-please release-pr \\
+                                --repo-url=viceda-s/SentinelOps \\
+                                --token="$GITHUB_TOKEN"
+                            release-please github-release \\
+                                --repo-url=viceda-s/SentinelOps \\
+                                --token="$GITHUB_TOKEN"
+                        '''
+                    }
+                }
+            }
+        }
         stage('Container Build') {
             steps {
                 sh 'docker build -t sentinelops/api:jenkins-${BUILD_NUMBER} docker/api'
