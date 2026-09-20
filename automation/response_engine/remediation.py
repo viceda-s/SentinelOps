@@ -14,6 +14,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from psycopg2.extensions import connection
@@ -48,15 +49,23 @@ DIAGNOSTICS_RETENTION_DAYS = DIAGNOSTICS_SETTINGS.retention_days
 DIAGNOSTICS_DIR = DIAGNOSTICS_SETTINGS.dir_path
 
 
-def record_attempt_start(conn: connection, incident: dict, playbook: str) -> int:
+def record_attempt_start(
+    conn: connection, incident: dict, playbook: str
+) -> tuple[int, str]:
     """Create a remediation_attempts row for a new remediation attempt.
 
+    Generates and owns execution_id, so every caller gets a fresh, correctly
+    persisted id without having to generate one itself and keep it in sync
+    with the matching record_attempt_finish() call.
+
     Returns:
-        The allocated attempt_number.
+        A (attempt_number, execution_id) tuple identifying the new row.
 
     The caller owns the transaction.
     This function MUST NOT call commit() or rollback().
     """
+
+    execution_id = str(uuid.uuid4())
 
     with conn.cursor() as cur:
         # Allocate the next attempt number for this incident.
@@ -80,23 +89,26 @@ def record_attempt_start(conn: connection, incident: dict, playbook: str) -> int
                 incident_id,
                 playbook,
                 attempt_number,
-                started_at
+                started_at,
+                execution_id
             )
             VALUES (
                 %s,
                 %s,
                 %s,
-                clock_timestamp()
+                clock_timestamp(),
+                %s
             )
             """,
             (
                 incident["id"],
                 playbook,
                 attempt_number,
+                execution_id,
             ),
         )
 
-    return attempt_number
+    return attempt_number, execution_id
 
 
 def record_attempt_finish(
@@ -106,6 +118,7 @@ def record_attempt_finish(
     playbook: str,
     result: str,
     *,
+    execution_id: str,
     diagnostics_path: str | None = None,
     error: str | None = None,
 ) -> None:
@@ -130,6 +143,7 @@ def record_attempt_finish(
                 error = %s
             WHERE incident_id = %s
               AND attempt_number = %s
+              AND execution_id = %s
             """,
             (
                 result,
@@ -137,14 +151,16 @@ def record_attempt_finish(
                 error,
                 incident["id"],
                 attempt_number,
+                execution_id,
             ),
         )
 
-        # Defensive check: caller should only finish an attempt that exists.
+        # Defensive check: rowcount is 0 if the attempt doesn't exist, or if execution_id doesn't match the one record_attempt_start returned for it.
 
         if cur.rowcount != 1:
             raise RuntimeError(
-                f"Attempt {attempt_number} does not exist for incident {incident['reference']}"
+                f"Attempt {attempt_number} for incident {incident['reference']} does not exist, "
+                f"or its execution_id does not match {execution_id!r}"
             )
 
         REMEDIATION_ATTEMPTS_TOTAL.labels(
@@ -201,7 +217,7 @@ def restart_service(
     verification = service["verification"]
 
     for attempt in range(1, MAX_RESTART_ATTEMPTS + 1):
-        attempt_number = record_attempt_start(
+        attempt_number, execution_id = record_attempt_start(
             conn,
             incident,
             playbook,
@@ -219,6 +235,7 @@ def restart_service(
                     attempt_number,
                     playbook,
                     result="failure",
+                    execution_id=execution_id,
                     error=str(e),
                 )
                 incident = transition(
@@ -251,6 +268,7 @@ def restart_service(
                         attempt_number,
                         playbook,
                         result="success",
+                        execution_id=execution_id,
                     )
 
                     incident = transition(
@@ -272,6 +290,7 @@ def restart_service(
                 attempt_number,
                 playbook,
                 result="timeout",
+                execution_id=execution_id,
                 error=(f"Verification timed out after {verify_timeout} seconds"),
             )
         # Record infrastructure failures for auditability, then propagate them.
@@ -283,6 +302,7 @@ def restart_service(
                 attempt_number,
                 playbook,
                 result="failure",
+                execution_id=execution_id,
                 error=str(e),
             )
             raise
@@ -325,7 +345,7 @@ def collect_diagnostics(
     playbook = "collect_diagnostics"
     service = cmdb["services"][incident["service"]]
     container_name = service["container_name"]
-    attempt_number = record_attempt_start(
+    attempt_number, execution_id = record_attempt_start(
         conn,
         incident,
         playbook,
@@ -344,6 +364,7 @@ def collect_diagnostics(
                 attempt_number,
                 playbook,
                 result="failure",
+                execution_id=execution_id,
                 error=str(e),
             )
             incident = transition(
@@ -384,6 +405,7 @@ def collect_diagnostics(
             attempt_number,
             playbook,
             result="success",
+            execution_id=execution_id,
             diagnostics_path=str(diagnostics_path),
         )
         incident = transition(
@@ -403,6 +425,7 @@ def collect_diagnostics(
             attempt_number,
             playbook,
             result="failure",
+            execution_id=execution_id,
             error=str(e),
         )
         raise
@@ -416,6 +439,7 @@ def collect_diagnostics(
             attempt_number,
             playbook,
             result="failure",
+            execution_id=execution_id,
             error=str(e),
         )
 
@@ -680,7 +704,7 @@ def disk_cleanup(
         return
 
     playbook = "disk_cleanup"
-    attempt_number = record_attempt_start(
+    attempt_number, execution_id = record_attempt_start(
         conn,
         incident,
         playbook,
@@ -700,6 +724,7 @@ def disk_cleanup(
                 attempt_number,
                 playbook,
                 result="failure",
+                execution_id=execution_id,
                 error=str(e),
             )
             incident = transition(
@@ -727,6 +752,7 @@ def disk_cleanup(
                 attempt_number,
                 playbook,
                 result="failure",
+                execution_id=execution_id,
                 error=(
                     "Alert did not carry instance/mountpoint labels; "
                     "cannot verify recovery"
@@ -754,6 +780,7 @@ def disk_cleanup(
                 attempt_number,
                 playbook,
                 result="failure",
+                execution_id=execution_id,
                 error=last_error or "disk measurement unavailable",
             )
             transition(
@@ -773,6 +800,7 @@ def disk_cleanup(
             attempt_number,
             playbook,
             result="success",
+            execution_id=execution_id,
         )
 
         if percent_free >= DISK_PRESSURE_FREE_PERCENT:
@@ -809,6 +837,7 @@ def disk_cleanup(
             attempt_number,
             playbook,
             result="failure",
+            execution_id=execution_id,
             error=str(e),
         )
         raise
