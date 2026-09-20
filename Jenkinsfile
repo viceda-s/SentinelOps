@@ -47,6 +47,38 @@ pipeline {
                 sh 'pytest --cov=automation --cov-report=xml -m "not e2e"'
             }
         }
+        stage('Quality Gate') {
+            tools {
+                'hudson.plugins.sonar.SonarRunnerInstallation' 'SonarScanner'
+            }
+            steps {
+                withSonarQubeEnv('SonarCloud') {
+                    sh 'sonar-scanner'
+                }
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+        stage('Container Build') {
+            steps {
+                sh 'docker build -t sentinelops/api:jenkins-${BUILD_NUMBER} docker/api'
+                sh 'docker build -f docker/webhook-handler/Dockerfile -t sentinelops/webhook-handler:jenkins-${BUILD_NUMBER} .'
+                sh 'docker build -f docker/worker/Dockerfile -t sentinelops/worker:jenkins-${BUILD_NUMBER} .'
+                sh 'docker build -f docker/report-generator/Dockerfile -t sentinelops/report-generator:jenkins-${BUILD_NUMBER} .'
+            }
+        }
+        stage('Vulnerability Scan') {
+            steps {
+                sh '''
+                    for image in api webhook-handler worker report-generator; do
+                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \\
+                            aquasec/trivy:latest image --exit-code 1 --severity HIGH,CRITICAL \\
+                            sentinelops/$image:jenkins-${BUILD_NUMBER}
+                    done
+                '''
+            }
+        }
     }
 
     post {
