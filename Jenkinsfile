@@ -4,6 +4,7 @@ pipeline {
     environment {
         PYTHON_VERSION = '3.13'
         PATH = "${WORKSPACE}/.venv/bin:${env.PATH}"
+        COMPOSE_PROJECT_NAME = 'sentinelops'
     }
 
     stages {
@@ -50,7 +51,7 @@ pipeline {
 
     post {
         always {
-            sh 'docker compose down -v --remove-orphans || true'
+            sh 'docker compose rm -sf postgres || true'
         }
     }
 }
