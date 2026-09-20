@@ -178,5 +178,33 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  jenkins:
+    image: jenkins/jenkins:2.568.3-slim
+    container_name: sentinelops-jenkins
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+    restart: unless-stopped
+
+  jenkins-agent:
+    build:
+      context: ./docker/jenkins-agent
+      args:
+        DOCKER_GID: ${DOCKER_GID}
+    container_name: sentinelops-jenkins-agent
+    environment:
+      JENKINS_URL: http://jenkins:8080
+      JENKINS_AGENT_NAME: docker-agent
+      JENKINS_SECRET: ${JENKINS_AGENT_SECRET}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${JENKINS_AGENT_WORKDIR}:${JENKINS_AGENT_WORKDIR}
+    depends_on:
+      - jenkins
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  jenkins_home:

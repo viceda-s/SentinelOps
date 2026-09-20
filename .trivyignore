@@ -1,0 +1,7 @@
+# Both IDs are inside pip's own vendored/license internals in the official
+# python:3.14-alpine base image (pip/_vendor/msgpack, and a setuptools
+# license source copy under pip's dist-info) -- never imported by
+# application code, not fixable from this repo's Dockerfiles. Revisit if
+# upstream python:3.14-alpine ships a pip release with updated vendored deps.
+GHSA-6v7p-g79w-8964
+CVE-2025-47273

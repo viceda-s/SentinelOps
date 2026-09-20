@@ -13,6 +13,7 @@ import docker
 from automation.response_engine.metrics import WORKER_HEARTBEAT_TIMESTAMP
 from automation.response_engine.remediation import (
     _verify_timeout_for,
+    collect_diagnostics,
     disk_cleanup,
     restart_service,
 )
@@ -25,12 +26,6 @@ CMDB = {
         },
     },
 }
-
-
-@pytest.fixture
-def docker_client():
-    """A Docker client whose prune calls all succeed and record their arguments."""
-    return MagicMock()
 
 
 @pytest.fixture
@@ -1370,3 +1365,70 @@ def test_verify_timeout_for_ignores_healthcheck_for_http_verification():
     )
 
     assert result == 30
+
+
+def test_collect_diagnostics_escalates_when_container_not_found(
+    db_connection, make_incident, docker_client
+):
+    """Verify that collect_diagnostics escalates when the container doesn't exist."""
+    incident = make_incident(status="ACKNOWLEDGED", service="api")
+
+    docker_client.containers.get.side_effect = docker.errors.NotFound(
+        "no such container"
+    )
+
+    collect_diagnostics(db_connection, docker_client, incident, CMDB)
+
+    assert _status(db_connection, incident["id"]) == "ESCALATED"
+
+    attempts = _attempts(db_connection, incident["id"])
+    assert len(attempts) == 1
+    assert attempts[0]["result"] == "failure"
+    assert "no such container" in attempts[0]["error"]
+
+
+def test_collect_diagnostics_records_failure_and_reraises_on_docker_api_error(
+    db_connection, make_incident, docker_client
+):
+    """Verify that collect_diagnostics records failure and reraises on Docker API error."""
+    incident = make_incident(status="ACKNOWLEDGED", service="api")
+
+    container = MagicMock()
+    container.logs.side_effect = docker.errors.APIError("boom")
+    docker_client.containers.get.return_value = container
+
+    with pytest.raises(docker.errors.APIError):
+        collect_diagnostics(db_connection, docker_client, incident, CMDB)
+
+    attempts = _attempts(db_connection, incident["id"])
+    assert len(attempts) == 1
+    assert attempts[0]["result"] == "failure"
+    assert "boom" in attempts[0]["error"]
+
+
+def test_collect_diagnostics_escalates_when_diagnostics_write_fails(
+    db_connection, make_incident, docker_client, tmp_path
+):
+    """Verify that collect_diagnostics escalates when the diagnostics file can't be written."""
+    incident = make_incident(status="ACKNOWLEDGED", service="api")
+
+    container = MagicMock()
+    container.logs.return_value = b"log output"
+    container.stats.return_value = {"cpu": "stats"}
+    docker_client.containers.get.return_value = container
+
+    with (
+        patch(
+            "automation.response_engine.remediation.DIAGNOSTICS_DIR",
+            tmp_path,
+        ),
+        patch("pathlib.Path.open", side_effect=OSError("disk full")),
+    ):
+        collect_diagnostics(db_connection, docker_client, incident, CMDB)
+
+    assert _status(db_connection, incident["id"]) == "ESCALATED"
+
+    attempts = _attempts(db_connection, incident["id"])
+    assert len(attempts) == 1
+    assert attempts[0]["result"] == "failure"
+    assert "disk full" in attempts[0]["error"]
