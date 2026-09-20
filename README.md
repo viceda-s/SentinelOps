@@ -213,6 +213,8 @@ Adjust any values if required for your environment.
 
 The environment file also contains dedicated PostgreSQL credentials for the response engine and report generator. Optional tuning parameters such as the health page refresh interval and PDF scan interval have sensible built-in defaults and normally do not need to be configured.
 
+`DOCKER_GID` is host-specific and cannot be defaulted -- find it with `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock alpine stat -c '%g' /var/run/docker.sock` and set it before starting the Jenkins agent (on Docker Desktop this is commonly `0`).
+
 ## Validate the environment
 
 Before starting the platform, verify that all prerequisites and configuration are valid:
