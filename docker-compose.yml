@@ -205,6 +205,15 @@ services:
       - jenkins
     restart: unless-stopped
 
+  smee:
+    build:
+      context: ./docker/smee
+    container_name: sentinelops-smee
+    command: ["--url", "${SMEE_CHANNEL_URL}", "--target", "http://jenkins:8080/github-webhook/"]
+    depends_on:
+      - jenkins
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   jenkins_home:
