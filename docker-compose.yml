@@ -178,6 +178,30 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  vault:
+    image: hashicorp/vault:1.18
+    container_name: sentinelops-vault
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--spider",
+          "-q",
+          "http://127.0.0.1:8200/v1/sys/health?standbyok=true",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   jenkins:
     image: jenkins/jenkins:2.568.3-slim
     container_name: sentinelops-jenkins
