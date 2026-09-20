@@ -27,3 +27,6 @@ RUN if getent group "${DOCKER_GID}" > /dev/null 2>&1; then \
     fi
 
 USER jenkins
+
+# Bind-mounted workspaces are owned by the host user's UID, which git (as the jenkins user) refuses to touch without this (CVE-2022-24765) -- must run after the USER switch above, or it'd configure root instead.
+RUN git config --global --add safe.directory '*'

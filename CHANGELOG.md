@@ -4,6 +4,28 @@ All notable changes to SentinelOps's design are recorded here. This
 tracks changes to `docs/DESIGN.md`'s recorded decisions, not every commit
 — see git history for full implementation detail.
 
+## [1.3.0] - 2026-09-20
+
+### Added
+
+- Stood up Jenkins as the primary, required CI/CD pipeline (`Jenkinsfile`, `jenkins`/`jenkins-agent` services in `docker-compose.yml`): config validation, build/test with coverage, a SonarQube Cloud quality gate, first-party container builds, a Trivy vulnerability scan, and a manually-triggered E2E chaos stage. `.github/workflows/quality-gate.yml` is retained as a slimmed, non-required lint-and-unit-test backstop. Recorded in ADR-012.
+
+### Changed
+
+- Reconciled `README.md` and `ROADMAP.md` with the Jenkins CI/CD migration.
+
+## [1.2.3] - 2026-09-19
+
+### Added
+
+- Wired in `pytest-cov` coverage measurement and reporting, scoped to `automation/` via `[tool.coverage.*]` in `pyproject.toml`.
+
+## [1.2.2] - 2026-09-07
+
+### Added
+
+- Added `correlation_id` and `execution_id` tracing primitives to `automation/response_engine`, threading a stable identifier through an incident's full lifecycle and each individual remediation attempt.
+
 ## [1.2.1] - 2026-08-09
 
 ### Added
