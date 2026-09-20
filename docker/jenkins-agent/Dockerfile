@@ -13,6 +13,11 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin && \
     rm -rf /var/lib/apt/lists/*
 
+# Python toolchain for pytest/ruff/yamllint (installed into a venv per-build by the Jenkinsfile, since requirements-dev.txt changes independently of this image) and shellcheck for the Config & Static Validation stage -- neither ships on this minimal Debian base, unlike GitHub Actions' ubuntu-latest runner.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 python3-venv shellcheck && \
+    rm -rf /var/lib/apt/lists/*
+
 # The bound socket's GID varies by host platform (Docker Desktop often presents GID 0/root) -- join whichever group already owns that GID, or create one if none does, so this Dockerfile works unmodified on any machine.
 ARG DOCKER_GID
 RUN if getent group "${DOCKER_GID}" > /dev/null 2>&1; then \
