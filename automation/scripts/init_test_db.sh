@@ -9,10 +9,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INIT_DIR="$REPO_ROOT/docker/postgres/init"
 
 if [[ -f "$REPO_ROOT/.env.test" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "$REPO_ROOT/.env.test"
-    set +a
+    # Preserve any already-exported vars (e.g. Jenkins' POSTGRES_HOST=postgres) instead of letting .env.test clobber them.
+    while IFS='=' read -r key value; do
+        [[ -z "$key" || "$key" == \#* ]] && continue
+        if [[ -z "${!key:-}" ]]; then
+            export "$key=$value"
+        fi
+    done < "$REPO_ROOT/.env.test"
 fi
 
 export PGHOST="${POSTGRES_HOST:-127.0.0.1}"
