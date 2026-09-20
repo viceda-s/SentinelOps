@@ -200,6 +200,7 @@ services:
       JENKINS_SECRET: ${JENKINS_AGENT_SECRET}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ${JENKINS_AGENT_WORKDIR}:${JENKINS_AGENT_WORKDIR}
     depends_on:
       - jenkins
     restart: unless-stopped

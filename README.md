@@ -215,6 +215,8 @@ The environment file also contains dedicated PostgreSQL credentials for the resp
 
 `DOCKER_GID` is host-specific and cannot be defaulted -- find it with `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock alpine stat -c '%g' /var/run/docker.sock` and set it before starting the Jenkins agent (on Docker Desktop this is commonly `0`).
 
+`JENKINS_AGENT_WORKDIR` must be an absolute host path (e.g. `/home/you/sentinelops-jenkins-agent`). It is bind-mounted into `jenkins-agent` at that same path so that `docker compose` commands run by pipeline steps -- which execute against the host's Docker daemon over the socket bind, but resolve relative volumes (e.g. `./docker/prometheus/prometheus.yml`) against the agent container's own filesystem -- produce paths the host daemon can actually find. Set the same path as the agent node's "Remote root directory" in Jenkins (Manage Jenkins -> Nodes -> docker-agent) so the job workspace lands under it. On Docker Desktop (Mac/Windows), also add this path under Settings -> Resources -> File Sharing; native Linux Docker has no such allowlist and needs no extra step.
+
 ## Validate the environment
 
 Before starting the platform, verify that all prerequisites and configuration are valid:
