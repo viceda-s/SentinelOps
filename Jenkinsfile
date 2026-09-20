@@ -1,6 +1,10 @@
 pipeline {
     agent { label 'docker-agent'}
 
+    parameters {
+        booleanParam(name: 'RUN_E2E_CHAOS', defaultValue: false, description: 'Run the E2E chaos test suite (slow, tears down and rebuilds the full stack)')
+    }
+
     environment {
         PYTHON_VERSION = '3.13'
         PATH = "${WORKSPACE}/.venv/bin:${env.PATH}"
@@ -40,7 +44,7 @@ pipeline {
             }
             steps {
                 sh 'cp .env.test .env'
-                sh 'docker compose up -d postgres'
+                sh 'docker compose up -d --wait postgres'
                 sh './automation/scripts/init_test_db.sh'
                 sh 'ruff check .'
                 sh 'ruff format --check .'
@@ -79,6 +83,35 @@ pipeline {
                             sentinelops/$image:jenkins-${BUILD_NUMBER}
                     done
                 '''
+            }
+        }
+        stage('E2E Chaos') {
+            when {
+                expression { return params.RUN_E2E_CHAOS }
+            }
+            steps {
+                sh 'cp .env.test .env'
+                sh './automation/scripts/bootstrap.sh'
+                sh 'pytest -m e2e'
+            }
+            post {
+                failure {
+                    sh 'docker compose logs --no-color > compose-logs.txt || true'
+                    archiveArtifacts artifacts: 'compose-logs.txt, diagnostics/**, .chaos/**', allowEmptyArchive: true
+                }
+                always {
+                    sh '''
+                        APP_SERVICES=$(docker compose config --services | grep -vE '^jenkins(-agent)?$')
+                        docker compose rm -sf $APP_SERVICES || true
+                    '''
+                }
+            }
+        }
+        stage('Archive & Report') {
+            steps {
+                archiveArtifacts artifacts: 'coverage.xml', allowEmptyArchive: true
+                echo "SonarQube Cloud report: check the Quality Gate stage output above for the dashboard link."
+                echo "Trivy scan results: check the Vulnerability Scan stage console output above."
             }
         }
     }
