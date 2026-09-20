@@ -44,7 +44,7 @@ pipeline {
             }
             steps {
                 sh 'cp .env.test .env'
-                sh 'docker compose up -d postgres'
+                sh 'docker compose up -d --wait postgres'
                 sh './automation/scripts/init_test_db.sh'
                 sh 'ruff check .'
                 sh 'ruff format --check .'
