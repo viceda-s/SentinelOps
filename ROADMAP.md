@@ -30,8 +30,12 @@ Tier 1 and Tier 2 items are decomposed into leaf task issues. Tier 3 items are d
 Focuses on automated testing, static quality gates, and zero-friction repeatability.
 
 * [x] **Comprehensive GitHub Actions CI Workflow** ([#23](https://github.com/viceda-s/SentinelOps/issues/23))
-  * Shipped in `.github/workflows/quality-gate.yml`: `ruff` lint and format checks, `pytest` against an ephemeral PostgreSQL service container, `shellcheck` across `automation/scripts/` and container entrypoints, and configuration validation via `bootstrap.sh --validate-only` (`compose config`, `promtool check rules`, `amtool check-config`, `validate_cmdb.py`, runbook mapping).
-  * Remaining gaps tracked separately: structural YAML linting ([#34](https://github.com/viceda-s/SentinelOps/issues/34)), Docker Compose *build* verification ([#35](https://github.com/viceda-s/SentinelOps/issues/35)), and a gated E2E chaos job ([#36](https://github.com/viceda-s/SentinelOps/issues/36)).
+  * Originally shipped in `.github/workflows/quality-gate.yml`: `ruff` lint and format checks, `pytest` against an ephemeral PostgreSQL service container, `shellcheck` across `automation/scripts/` and container entrypoints, and configuration validation via `bootstrap.sh --validate-only` (`compose config`, `promtool check rules`, `amtool check-config`, `validate_cmdb.py`, runbook mapping).
+  * Superseded as the primary pipeline by the Jenkins migration below; retained in slimmed form as a public CI backstop.
+* [x] **Jenkins Primary CI/CD Pipeline** — see [ADR-012](docs/adr/012-jenkins-primary-cicd-with-github-actions-backstop.md)
+  * Local Jenkins (Docker Compose) runs the full quality gate: config validation, build/test with `pytest-cov` coverage, a SonarQube Cloud quality gate, first-party image builds (`api`, `webhook-handler`, `worker`, `report-generator`), a Trivy vulnerability scan of those images, and a manually-triggered E2E chaos stage.
+  * Wired to GitHub via the Branch Source Plugin and a smee.io webhook tunnel for real-time PR status checks; branch protection on `main` requires the Jenkins check only.
+  * `.github/workflows/quality-gate.yml` retained as a non-required, always-on lint+unit-test backstop.
 * [ ] **Automated E2E Chaos Test Harness** (`tests/integration/test_chaos_e2e.py`) — [#24](https://github.com/viceda-s/SentinelOps/issues/24)
   * Programmatic assertion of full incident lifecycles triggered via `chaos.sh`.
   * Verifies `CREATED` $\rightarrow$ `ACKNOWLEDGED` $\rightarrow$ `IN_PROGRESS` $\rightarrow$ `RESOLVED` / `ESCALATED` state transitions.
