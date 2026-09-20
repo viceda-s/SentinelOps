@@ -72,13 +72,23 @@ check_disk_space() {
     fi
 }
 
+app_services() {
+    docker compose config --services | grep -vE '^jenkins(-agent)?$'
+}
+
 check_ports() {
 
     local compose_service_count
     local running_service_count
+    local services=()
+    local service
 
-    compose_service_count=$(docker compose config --services | wc -l | tr -d ' ')
-    running_service_count=$(docker compose ps -q | wc -l | tr -d ' ')
+    while IFS= read -r service; do
+        services+=("$service")
+    done < <(app_services)
+
+    compose_service_count=${#services[@]}
+    running_service_count=$(docker compose ps -q "${services[@]}" | wc -l | tr -d ' ')
 
     #
     # Stack already running.
@@ -275,7 +285,12 @@ fi
 echo
 echo "Starting SentinelOps..."
 
-docker compose up -d
+app_service_list=()
+while IFS= read -r service; do
+    app_service_list+=("$service")
+done < <(app_services)
+
+docker compose up -d "${app_service_list[@]}"
 
 wait_for_health
 
