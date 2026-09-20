@@ -14,5 +14,6 @@
 | [010](010-sla-breach-calculation-and-metrics.md) | SLA breach calculation and metrics |
 | [011](011-decoupled-report-generation-and-health-dashboard.md) | Decoupled report generation and health dashboard |
 | [012](012-jenkins-primary-cicd-with-github-actions-backstop.md) | Jenkins as the primary CI/CD pipeline, with GitHub Actions retained as a public backstop |
+| [013](013-release-please-for-versioning-and-changelog.md) | Release Please for automated versioning and changelog generation |
 
 Numbers 002, 006, and 007 correspond to decisions originally recorded in `docs/DESIGN.md`'s decision table and subsequently addressed in Phase 1.2 via ADRs 009 (Alertmanager silences), 010 (SLA tracking), and 011 (reporting service).

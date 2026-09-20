@@ -13,7 +13,7 @@ To maintain clarity across project documentation:
 * **`ROADMAP.md`** *(This file)* — What comes next, priorities, technical rationale, and phase boundaries.
 * **`docs/DESIGN.md`** — Core design principles, failure-independence models, and architectural rationale.
 * **`README.md`** — High-level portfolio summary, system capabilities, and getting started guide.
-* **`CHANGELOG.md`** — Historical record of design, architecture, and feature evolution.
+* **`CHANGELOG.md`** — Version history, generated automatically by Release Please from Conventional Commits (see ADR-013); entries through `[1.3.0]` are hand-curated design history predating that automation.
 
 ---
 
