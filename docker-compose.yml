@@ -14,14 +14,18 @@ services:
     restart: unless-stopped
 
   api:
-    build: ./docker/api
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
     container_name: sentinelops-api
-    env_file:
-      - .env
     environment:
       POSTGRES_HOST: ${POSTGRES_CONTAINER_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
     depends_on:
       postgres:
+        condition: service_healthy
+      vault:
         condition: service_healthy
     ports:
       - "5001:5000"
@@ -114,12 +118,14 @@ services:
       context: .
       dockerfile: docker/report-generator/Dockerfile
     container_name: sentinelops-report-generator
-    env_file:
-      - .env
     environment:
       POSTGRES_HOST: ${POSTGRES_CONTAINER_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
     depends_on:
       postgres:
+        condition: service_healthy
+      vault:
         condition: service_healthy
     volumes:
       - ./reports:/app/reports
@@ -132,12 +138,14 @@ services:
       context: .
       dockerfile: docker/webhook-handler/Dockerfile
     container_name: sentinelops-webhook-handler
-    env_file:
-      - .env
     environment:
       POSTGRES_HOST: ${POSTGRES_CONTAINER_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
     depends_on:
       postgres:
+        condition: service_healthy
+      vault:
         condition: service_healthy
     ports:
       - "5002:8000"
@@ -168,14 +176,16 @@ services:
       context: .
       dockerfile: docker/maintenance-monitor/Dockerfile
     container_name: sentinelops-maintenance-monitor
-    env_file:
-      - .env
     environment:
       POSTGRES_HOST: ${POSTGRES_CONTAINER_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
       ALERTMANAGER_URL: http://alertmanager:9093
       PYTHONFAULTHANDLER: "1"
     depends_on:
       postgres:
+        condition: service_healthy
+      vault:
         condition: service_healthy
       alertmanager:
         condition: service_started

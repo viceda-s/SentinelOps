@@ -83,7 +83,7 @@ pipeline {
         }
         stage('Container Build') {
             steps {
-                sh 'docker build -t sentinelops/api:jenkins-${BUILD_NUMBER} docker/api'
+                sh 'docker build -f docker/api/Dockerfile -t sentinelops/api:jenkins-${BUILD_NUMBER} .'
                 sh 'docker build -f docker/webhook-handler/Dockerfile -t sentinelops/webhook-handler:jenkins-${BUILD_NUMBER} .'
                 sh 'docker build -f docker/worker/Dockerfile -t sentinelops/worker:jenkins-${BUILD_NUMBER} .'
                 sh 'docker build -f docker/report-generator/Dockerfile -t sentinelops/report-generator:jenkins-${BUILD_NUMBER} .'
