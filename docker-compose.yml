@@ -19,7 +19,7 @@ services:
     env_file:
       - .env
     environment:
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: ${POSTGRES_CONTAINER_HOST}
     depends_on:
       postgres:
         condition: service_healthy
@@ -117,7 +117,7 @@ services:
     env_file:
       - .env
     environment:
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: ${POSTGRES_CONTAINER_HOST}
     depends_on:
       postgres:
         condition: service_healthy
@@ -135,7 +135,7 @@ services:
     env_file:
       - .env
     environment:
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: ${POSTGRES_CONTAINER_HOST}
     depends_on:
       postgres:
         condition: service_healthy
@@ -149,12 +149,14 @@ services:
       dockerfile: docker/worker/Dockerfile
     container_name: sentinelops-worker
     init: true
-    env_file:
-      - .env
     environment:
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: ${POSTGRES_CONTAINER_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
     depends_on:
       postgres:
+        condition: service_healthy
+      vault:
         condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -169,7 +171,7 @@ services:
     env_file:
       - .env
     environment:
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: ${POSTGRES_CONTAINER_HOST}
       ALERTMANAGER_URL: http://alertmanager:9093
       PYTHONFAULTHANDLER: "1"
     depends_on:

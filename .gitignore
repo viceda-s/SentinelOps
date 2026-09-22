@@ -2,6 +2,7 @@
 .env
 *.pem
 *.key
+docker/vault/agent/roleids/ 
 
 # Generated incident artifacts
 reports/*.pdf
