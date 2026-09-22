@@ -180,7 +180,7 @@ services:
     restart: unless-stopped
 
   vault:
-    image: hashicorp/vault:1.18
+    image: hashicorp/vault:2.1.1
     container_name: sentinelops-vault
     cap_add:
       - IPC_LOCK
