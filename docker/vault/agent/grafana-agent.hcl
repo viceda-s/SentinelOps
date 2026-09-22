@@ -26,7 +26,7 @@ env_template "GF_SECURITY_ADMIN_PASSWORD" {
 }
 
 exec {
-  command                   = ["/run.sh"]  # TODO(Task 6): confirm via docker inspect grafana/grafana:11.2.0 --format '{{.Config.Entrypoint}}'
+  command                   = ["/run.sh"]
   restart_on_secret_changes = "always"
   restart_stop_signal       = "SIGTERM"
 }
