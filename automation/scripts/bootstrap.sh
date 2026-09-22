@@ -16,6 +16,7 @@ GRAFANA_PORT=3001
 POSTGRES_PORT=5432
 PROMETHEUS_PORT=9090
 ALERTMANAGER_PORT=9093
+VAULT_PORT=8200
 
 VALIDATE_ONLY=false
 
@@ -116,6 +117,7 @@ check_ports() {
         "$POSTGRES_PORT"
         "$PROMETHEUS_PORT"
         "$ALERTMANAGER_PORT"
+        "$VAULT_PORT"
     )
 
     for port in "${ports[@]}"; do
@@ -167,6 +169,44 @@ validate_compose() {
     echo "Validating Docker Compose configuration..."
 
     docker compose config >/dev/null
+}
+
+bootstrap_vault_and_seed() {
+
+    echo "Starting Postgres and Vault..."
+
+    docker compose up -d postgres vault
+
+    echo "Waiting for Postgres and Vault to become healthy..."
+
+    local deadline
+    deadline=$(( $(date +%s) + 60 ))
+
+    while (( $(date +%s) < deadline )); do
+        if [[ "$(docker compose ps postgres --format '{{.Health}}')" == "healthy" &&
+              "$(docker compose ps vault --format '{{.Health}}')" == "healthy" ]]; then
+            return
+        fi
+        sleep 2
+    done
+
+    echo "Timed out waiting for Postgres and Vault to become healthy."
+    exit 1
+}
+
+run_vault_bootstrap() {
+
+    echo "Bootstrapping Vault (AppRole, KV, database secrets engine)..."
+
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
+
+    export VAULT_ADDR="http://127.0.0.1:${VAULT_PORT}"
+
+    ./docker/vault/bootstrap/bootstrap_vault.sh
+    ./docker/vault/bootstrap/seed_role_ids.sh
 }
 
 wait_for_health() {
@@ -254,6 +294,9 @@ Prometheus:
 Alertmanager:
     http://localhost:${ALERTMANAGER_PORT}
 
+Vault:
+    http://localhost:${VAULT_PORT}
+
 ==================================================
 
 EOF
@@ -285,12 +328,15 @@ fi
 echo
 echo "Starting SentinelOps..."
 
+bootstrap_vault_and_seed
+run_vault_bootstrap
+
 app_service_list=()
 while IFS= read -r service; do
     app_service_list+=("$service")
 done < <(app_services)
 
-docker compose up -d "${app_service_list[@]}"
+docker compose up -d --build "${app_service_list[@]}"
 
 wait_for_health
 

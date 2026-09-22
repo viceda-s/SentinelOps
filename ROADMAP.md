@@ -62,6 +62,9 @@ Establishes fundamental reliability primitives and modular interfaces for platfo
 * [ ] **Remediation Plugin Registry** — [#29](https://github.com/viceda-s/SentinelOps/issues/29)
   * Refactor playbook dispatch logic in `automation/response_engine/remediation/` into a plugin registry (`registry.py`, `base.py`).
   * Supports extensible multi-step playbook execution without modifying core worker dispatch loops.
+* [x] **Vault-Based Dynamic Secrets Management** — [#64](https://github.com/viceda-s/SentinelOps/issues/64) — see [ADR-014](docs/adr/014-vault-dev-mode-dynamic-secrets.md)
+  * Replaces static `.env`-file credentials with HashiCorp Vault (dev mode): short-TTL dynamic PostgreSQL credentials for `response_engine`/`report_generator`/`api`, plus a static KV entry for the Grafana admin password.
+  * Vault Agent runs in exec mode inside each of the 6 affected service images, restarting the supervised process on every credential rotation.
 * [ ] **Configurable Remediation Bounds & Blast-Radius Controls** — [#43](https://github.com/viceda-s/SentinelOps/issues/43)
   * **Externalize existing timing constants.** `VERIFY_TIMEOUT`, `VERIFY_INTERVAL`, `RESTART_COOLDOWN`, and `MAX_RESTART_ATTEMPTS` are currently module-level constants in `remediation.py`, so shortening a verification window for a demo or a test requires a source edit. Introduce a `RemediationSettings` dataclass in `config.py` (following the existing `PrometheusSettings` / `DiagnosticsSettings` pattern) supplying fleet-wide defaults, with per-service verification timing resolved from the CMDB `verification:` block — a Postgres restart legitimately needs a longer window than nginx.
   * **Resolve settings at worker startup, not import time.** The existing `from_env()` module globals are evaluated on import, which prevents tests from adjusting timing without a module reload. Pass a resolved settings object into playbook execution instead.
@@ -92,7 +95,6 @@ Features intentionally deferred to future iterations to maintain focus on core i
 
 * **Production Deployment Hardening**
   * Authentication & Role-Based Access Control (RBAC) across monitoring, health, and report endpoints.
-  * Secret management integration (e.g., Vault, AWS Secrets Manager) replacing plain `.env` files.
   * Docker API socket proxy exposing restricted daemon endpoints instead of raw socket mounting.
   * Authenticated Prometheus and Alertmanager receivers.
 * **Infrastructure & Automation**

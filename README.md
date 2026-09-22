@@ -211,7 +211,7 @@ cp .env.example .env
 
 Adjust any values if required for your environment.
 
-The environment file also contains dedicated PostgreSQL credentials for the response engine and report generator. Optional tuning parameters such as the health page refresh interval and PDF scan interval have sensible built-in defaults and normally do not need to be configured.
+The environment file also contains the bootstrap PostgreSQL credentials for the response engine, report generator, and API's dedicated least-privilege roles, and Vault's dev-mode root token. Since Phase 3, these are the credentials `docker/postgres/init/007_create_roles.sh` and `docker/vault/bootstrap/bootstrap_vault.sh` use to seed the underlying roles and secrets engines — the services themselves never read them directly, only the short-TTL credentials Vault issues dynamically (see [ADR-014](docs/adr/014-vault-dev-mode-dynamic-secrets.md)). Optional tuning parameters such as the health page refresh interval and PDF scan interval have sensible built-in defaults and normally do not need to be configured.
 
 `DOCKER_GID` is host-specific and cannot be defaulted -- find it with `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock alpine stat -c '%g' /var/run/docker.sock` and set it before starting the Jenkins agent (on Docker Desktop this is commonly `0`).
 
@@ -233,7 +233,7 @@ This performs validation without creating or modifying any containers.
 ./automation/scripts/bootstrap.sh
 ```
 
-The bootstrap script validates the environment, starts the Docker Compose stack, and performs post-start validation checks.
+The bootstrap script validates the environment, starts Postgres and Vault, bootstraps Vault (AppRole auth, KV engine, database secrets engine, and per-service dynamic credentials — see [ADR-014](docs/adr/014-vault-dev-mode-dynamic-secrets.md)), builds and starts the rest of the Docker Compose stack, and performs post-start validation checks.
 
 Once the platform is running, the primary interfaces are:
 
@@ -243,6 +243,7 @@ Once the platform is running, the primary interfaces are:
 | Prometheus       | http://localhost:9090            |
 | Alertmanager     | http://localhost:9093            |
 | API              | http://localhost:5001            |
+| Vault            | http://localhost:8200            |
 | Health page      | http://localhost:8081/health/    |
 | Incident reports | http://localhost:8081/reports/   |
 
@@ -371,15 +372,15 @@ The remediation worker is granted access to the Docker Engine through `/var/run/
 
 Additional Phase 1.1 simplifications include:
 
-* A shared Grafana administrator account configured through `GRAFANA_ADMIN_PASSWORD`.
+* A shared Grafana administrator account whose password is dynamically issued by Vault (see below), seeded from `GRAFANA_ADMIN_PASSWORD` at bootstrap.
 * Prometheus and Alertmanager exposed without authentication.
 * The Alertmanager webhook receiver (/alerts) is intentionally unauthenticated in Phase 1.1 because all services communicate over the project's private Docker network and the endpoint is not exposed on a host port. In a production deployment, this endpoint should be authenticated or otherwise restricted, as it creates incident records and can trigger automated container restarts.
-* Local secrets stored in `.env`, which is excluded from version control.
+* Bootstrap secrets stored in `.env`, which is excluded from version control.
 * Local-only chaos tooling designed to operate exclusively on this project's Docker Compose stack.
 
 Phase 1.2 adds two more unauthenticated nginx routes, `/health/` and `/reports/`. `/reports/` is the more sensitive of the two: incident reports include collected diagnostics (container logs and stats) and the operator-written Root Cause Analysis, and references are sequential (`INC-2026-001.pdf`, `INC-2026-002.pdf`, ...) and therefore easy to enumerate. As with the rest of Phase 1.1's unauthenticated surface, this is an accepted lab-only trade-off, not an oversight — a production deployment would put both routes behind authentication.
 
-The response engine and report generator connect to PostgreSQL as dedicated least-privilege roles (`response_engine`, `report_generator`) rather than the shared superuser credential; see `docker/postgres/init/007_create_roles.sh` for the exact grants.
+The response engine, report generator, and API connect to PostgreSQL as dedicated least-privilege roles (`response_engine`, `report_generator`, `api`) rather than the shared superuser credential; see `docker/postgres/init/007_create_roles.sh` for the exact grants. As of Phase 3, these roles are never used directly — each service authenticates with a short-TTL credential dynamically issued by HashiCorp Vault (dev mode) and rotated automatically by Vault Agent running inside each service's container; see [ADR-014](docs/adr/014-vault-dev-mode-dynamic-secrets.md).
 
 These trade-offs are appropriate for a learning environment but would be replaced in production with least-privilege credentials, authenticated monitoring endpoints, and a restricted interface to the container runtime.
 
