@@ -1,6 +1,7 @@
 services:
   nginx:
     image: nginx:1.27-alpine
+    container_name: sentinelops-nginx
     volumes:
       - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./health:/app/health:ro
@@ -14,6 +15,7 @@ services:
 
   api:
     build: ./docker/api
+    container_name: sentinelops-api
     env_file:
       - .env
     environment:
@@ -27,6 +29,7 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    container_name: sentinelops-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -47,6 +50,7 @@ services:
 
   node-exporter:
     image: prom/node-exporter:v1.8.2
+    container_name: sentinelops-node-exporter
     pid: host
     volumes:
       - /proc:/host/proc:ro
@@ -60,6 +64,7 @@ services:
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: sentinelops-cadvisor
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
@@ -72,6 +77,7 @@ services:
 
   prometheus:
     image: prom/prometheus:v2.54.1
+    container_name: sentinelops-prometheus
     volumes:
       - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./docker/prometheus/rules:/etc/prometheus/rules:ro
@@ -81,6 +87,7 @@ services:
 
   alertmanager:
     image: prom/alertmanager:v0.33.1
+    container_name: sentinelops-alertmanager
     volumes:
       - ./docker/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     ports:
@@ -89,6 +96,7 @@ services:
 
   grafana:
     image: grafana/grafana:11.2.0
+    container_name: sentinelops-grafana
     volumes:
       - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./docker/grafana/dashboards:/var/lib/grafana/provisioning/dashboards/json:ro
@@ -104,6 +112,7 @@ services:
     build:
       context: .
       dockerfile: docker/report-generator/Dockerfile
+    container_name: sentinelops-report-generator
     env_file:
       - .env
     environment:
@@ -121,6 +130,7 @@ services:
     build:
       context: .
       dockerfile: docker/webhook-handler/Dockerfile
+    container_name: sentinelops-webhook-handler
     env_file:
       - .env
     environment:
@@ -136,6 +146,7 @@ services:
     build:
       context: .
       dockerfile: docker/worker/Dockerfile
+    container_name: sentinelops-worker
     init: true
     env_file:
       - .env
@@ -153,6 +164,7 @@ services:
     build:
       context: .
       dockerfile: docker/maintenance-monitor/Dockerfile
+    container_name: sentinelops-maintenance-monitor
     env_file:
       - .env
     environment:
@@ -168,6 +180,7 @@ services:
 
   jenkins:
     image: jenkins/jenkins:2.568.3-slim
+    container_name: sentinelops-jenkins
     ports:
       - "8080:8080"
       - "50000:50000"
@@ -180,6 +193,7 @@ services:
       context: ./docker/jenkins-agent
       args:
         DOCKER_GID: ${DOCKER_GID}
+    container_name: sentinelops-jenkins-agent
     environment:
       JENKINS_URL: http://jenkins:8080
       JENKINS_AGENT_NAME: docker-agent
@@ -194,6 +208,7 @@ services:
   smee:
     build:
       context: ./docker/smee
+    container_name: sentinelops-smee
     command: ["--url", "${SMEE_CHANNEL_URL}", "--target", "http://jenkins:8080/github-webhook/"]
     depends_on:
       - jenkins
