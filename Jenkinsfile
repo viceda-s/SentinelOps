@@ -8,7 +8,7 @@ pipeline {
     environment {
         PYTHON_VERSION = '3.13'
         PATH = "${WORKSPACE}/.venv/bin:${env.PATH}"
-        COMPOSE_PROJECT_NAME = 'sentinelops'
+        COMPOSE_PROJECT_NAME = 'sentinelops-ci'
     }
 
     stages {
