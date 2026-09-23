@@ -8,7 +8,6 @@ pipeline {
     environment {
         PYTHON_VERSION = '3.13'
         PATH = "${WORKSPACE}/.venv/bin:${env.PATH}"
-        COMPOSE_PROJECT_NAME = 'sentinelops'
     }
 
     stages {
@@ -17,7 +16,7 @@ pipeline {
                 sh 'python3 -m venv .venv'
                 sh 'pip install -r requirements-dev.txt'
                 sh 'shellcheck automation/scripts/*.sh docker/postgres/init/007_create_roles.sh'
-                sh 'yamllint docker cmdb .github/workflows docker-compose.yml'
+                sh 'yamllint docker cmdb .github/workflows docker-compose.yml docker-compose.ci.yml'
                 sh '''
                     for f in automation/scripts/*.sh; do
                         if [ ! -x "$f" ]; then
@@ -44,11 +43,19 @@ pipeline {
             }
             steps {
                 sh 'cp .env.test .env'
-                sh 'docker compose up -d --wait postgres'
+                sh 'docker compose -f docker-compose.ci.yml -p sentinelops-ci up -d --wait postgres'
+                // jenkins-agent doesn't auto-join the CI project's network (DooD); join it so the service name resolves.
+                sh 'docker network connect sentinelops-ci_default "$(hostname)"'
                 sh './automation/scripts/init_test_db.sh'
                 sh 'ruff check .'
                 sh 'ruff format --check .'
                 sh 'pytest --cov=automation --cov-report=xml -m "not e2e"'
+            }
+            post {
+                always {
+                    sh 'docker network disconnect sentinelops-ci_default "$(hostname)" || true'
+                    sh 'docker compose -f docker-compose.ci.yml -p sentinelops-ci down -v || true'
+                }
             }
         }
         stage('Quality Gate') {
