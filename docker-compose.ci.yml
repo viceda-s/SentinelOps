@@ -1,0 +1,13 @@
+include:
+  - path: ./docker/postgres/base.yml
+
+services:
+  postgres:
+    container_name: sentinelops-ci-postgres
+    volumes:
+      - sentinelops_ci_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "55432:5432"
+
+volumes:
+  sentinelops_ci_postgres_data:
