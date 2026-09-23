@@ -39,12 +39,13 @@ pipeline {
 
         stage('Build & Test') {
             environment {
-                POSTGRES_HOST = '127.0.0.1'
-                POSTGRES_PORT = '55432'
+                POSTGRES_HOST = 'postgres'
             }
             steps {
                 sh 'cp .env.test .env'
                 sh 'docker compose -f docker-compose.ci.yml -p sentinelops-ci up -d --wait postgres'
+                // jenkins-agent doesn't auto-join the CI project's network (DooD); join it so the service name resolves.
+                sh 'docker network connect sentinelops-ci_default "$(hostname)"'
                 sh './automation/scripts/init_test_db.sh'
                 sh 'ruff check .'
                 sh 'ruff format --check .'
@@ -52,6 +53,7 @@ pipeline {
             }
             post {
                 always {
+                    sh 'docker network disconnect sentinelops-ci_default "$(hostname)" || true'
                     sh 'docker compose -f docker-compose.ci.yml -p sentinelops-ci down -v || true'
                 }
             }
