@@ -209,6 +209,8 @@ services:
   jenkins:
     image: jenkins/jenkins:2.568.3-slim
     container_name: sentinelops-jenkins
+    environment:
+      TZ: Europe/Luxembourg
     ports:
       - "8080:8080"
       - "50000:50000"
@@ -223,6 +225,7 @@ services:
         DOCKER_GID: ${DOCKER_GID}
     container_name: sentinelops-jenkins-agent
     environment:
+      TZ: Europe/Luxembourg
       JENKINS_URL: http://jenkins:8080
       JENKINS_AGENT_NAME: docker-agent
       JENKINS_SECRET: ${JENKINS_AGENT_SECRET}
@@ -243,6 +246,21 @@ services:
         "${SMEE_CHANNEL_URL}",
         "--target",
         "http://jenkins:8080/github-webhook/",
+      ]
+    depends_on:
+      - jenkins
+    restart: unless-stopped
+
+  smee-sonarqube:
+    build:
+      context: ./docker/smee
+    container_name: sentinelops-smee-sonarqube
+    command:
+      [
+        "--url",
+        "${SMEE_SONARQUBE_CHANNEL_URL}",
+        "--target",
+        "http://jenkins:8080/sonarqube-webhook/",
       ]
     depends_on:
       - jenkins
