@@ -1,7 +1,9 @@
 # Secrets
 .env
+.env.bk
 *.pem
 *.key
+docker/vault/agent/roleids/
 
 # Generated incident artifacts
 reports/*.pdf

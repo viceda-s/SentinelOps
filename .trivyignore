@@ -5,3 +5,31 @@
 # upstream python:3.14-alpine ships a pip release with updated vendored deps.
 GHSA-6v7p-g79w-8964
 CVE-2025-47273
+
+# All of these are compiled into the grafana/grafana/grafana-cli/grafana-server
+# Go binaries inside the official grafana/grafana:11.6.16 image (stdlib and
+# vendored deps like kin-openapi, thrift, grpc, tempo) -- only fixable by a
+# Grafana rebuild against a newer Go toolchain/deps, not from this repo's
+# Dockerfile. Revisit on the next grafana/grafana version bump.
+CVE-2026-9029
+CVE-2026-21728
+CVE-2026-28377
+CVE-2026-33818
+CVE-2026-39821
+CVE-2026-39822
+CVE-2026-42151
+CVE-2026-43871
+CVE-2026-46600
+CVE-2026-56852
+CVE-2026-56853
+CVE-2026-56854
+CVE-2026-56858
+CVE-2026-56859
+CVE-2026-56860
+CVE-2026-56862
+CVE-2026-76905
+CVE-2026-77354
+CVE-2026-84304
+CVE-2026-84445
+GHSA-hrxh-6v49-42gf
+GHSA-r277-6w6q-xmqw

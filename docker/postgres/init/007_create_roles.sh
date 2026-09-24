@@ -13,6 +13,9 @@ BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'report_generator') THEN
         CREATE ROLE report_generator LOGIN PASSWORD '${REPORT_GENERATOR_DB_PASSWORD}';
     END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'api') THEN
+        CREATE ROLE api LOGIN PASSWORD '${API_DB_PASSWORD}';
+    END IF;
 END \$$;
 
 GRANT SELECT, INSERT, UPDATE ON incidents, incident_events, remediation_attempts, incident_reference_counters TO response_engine;
@@ -23,4 +26,8 @@ GRANT SELECT ON incident_reports TO response_engine;
 GRANT SELECT ON incidents, incident_events, remediation_attempts TO report_generator;
 GRANT USAGE ON SCHEMA public TO report_generator;
 GRANT SELECT, INSERT ON incident_reports TO report_generator;
+
+GRANT SELECT ON items TO api;
+GRANT USAGE ON SCHEMA public TO api;
+
 EOSQL

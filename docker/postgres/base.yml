@@ -7,6 +7,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       RESPONSE_ENGINE_DB_PASSWORD: ${RESPONSE_ENGINE_DB_PASSWORD}
       REPORT_GENERATOR_DB_PASSWORD: ${REPORT_GENERATOR_DB_PASSWORD}
+      API_DB_PASSWORD: ${API_DB_PASSWORD}
     volumes:
       - ./init:/docker-entrypoint-initdb.d:ro
     healthcheck:
