@@ -62,12 +62,16 @@ pipeline {
             steps {
                 script {
                     def scannerHome = tool 'SonarScanner'
+                    // Without these, every analysis (PR or branch) gets filed as 'main' on SonarCloud's side, breaking PR decoration.
+                    def sonarParams = env.CHANGE_ID
+                        ? "-Dsonar.pullrequest.key=${env.CHANGE_ID} -Dsonar.pullrequest.branch=${env.CHANGE_BRANCH} -Dsonar.pullrequest.base=${env.CHANGE_TARGET}"
+                        : "-Dsonar.branch.name=${env.BRANCH_NAME}"
+                    // sonar.qualitygate.wait polls SonarCloud's API directly for the gate result; webhook delivery is a Team/Enterprise-only feature, unavailable on this org's Free plan.
                     withSonarQubeEnv('SonarCloud') {
-                        sh "${scannerHome}/bin/sonar-scanner"
+                        timeout(time: 5, unit: 'MINUTES') {
+                            sh "${scannerHome}/bin/sonar-scanner ${sonarParams} -Dsonar.qualitygate.wait=true"
+                        }
                     }
-                }
-                timeout(time: 5, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true
                 }
             }
         }

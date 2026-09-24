@@ -251,21 +251,6 @@ services:
       - jenkins
     restart: unless-stopped
 
-  smee-sonarqube:
-    build:
-      context: ./docker/smee
-    container_name: sentinelops-smee-sonarqube
-    command:
-      [
-        "--url",
-        "${SMEE_SONARQUBE_CHANNEL_URL}",
-        "--target",
-        "http://jenkins:8080/sonarqube-webhook/",
-      ]
-    depends_on:
-      - jenkins
-    restart: unless-stopped
-
 volumes:
   postgres_data:
   jenkins_home:
