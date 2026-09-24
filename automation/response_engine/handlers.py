@@ -14,7 +14,7 @@ import psycopg2
 from psycopg2.extensions import connection
 from psycopg2.extras import Json
 
-from .events import get_next_sequence
+from .events import IncidentCreated, get_next_sequence, record_event
 from .metrics import INCIDENTS_CREATED_TOTAL
 from .state_machine import transition
 
@@ -240,33 +240,13 @@ def ingest_alert(
         if correlation_id is not None:
             event_payload["correlation_id"] = correlation_id
 
-        cur.execute(
-            """
-            INSERT INTO incident_events (
-                incident_id,
-                sequence,
-                occurred_at,
-                actor,
-                event_type,
-                message,
-                payload
-            )
-            VALUES (
-                %s,
-                %s,
-                NOW(),
-                %s,
-                'CREATED',
-                %s,
-                %s
-            )
-            """,
-            (
-                incident["id"],
-                1,
-                source,
-                f"{alert_name} received",
-                Json(event_payload),
+        record_event(
+            conn,
+            incident["id"],
+            IncidentCreated(
+                actor=source,
+                message=f"{alert_name} received",
+                payload=event_payload,
             ),
         )
 

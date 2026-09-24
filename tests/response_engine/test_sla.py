@@ -66,7 +66,7 @@ def test_response_sla_breached(db_connection, make_incident):
         event = cur.fetchone()
 
         assert event["actor"] == "worker"
-        assert event["event_type"] == "NOTE"
+        assert event["event_type"] == "SLA_BREACHED"
         assert event["message"] == "Response SLA breached."
 
 
@@ -165,7 +165,7 @@ def test_resolution_sla_breached(db_connection, make_incident):
         event = cur.fetchone()
 
         assert event["actor"] == "worker"
-        assert event["event_type"] == "NOTE"
+        assert event["event_type"] == "SLA_BREACHED"
         assert event["message"] == "Resolution SLA breached."
 
 
@@ -252,7 +252,7 @@ def test_terminal_incident_is_ignored(db_connection, make_incident):
             FROM incident_events
             WHERE incident_id = %s
               AND actor = 'worker'
-              AND event_type = 'NOTE'
+              AND event_type = 'SLA_BREACHED'
             """,
             (incident["id"],),
         )

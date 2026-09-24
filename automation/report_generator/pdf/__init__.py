@@ -16,6 +16,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.platypus import Flowable, KeepTogether, SimpleDocTemplate
 
+from ...response_engine.events import ReportGenerated, record_event
 from ..report_model import ReportModel
 from .sections import (
     build_actions_taken,
@@ -116,3 +117,13 @@ def write_pdf_and_record(conn, model: ReportModel, reports_dir: Path) -> None:
                 checksum,
             ),
         )
+
+    record_event(
+        conn,
+        model.incident["id"],
+        ReportGenerated(
+            actor="report_generator",
+            message=f"Report generated for {reference}",
+            payload={"path": str(final_path), "checksum": checksum},
+        ),
+    )

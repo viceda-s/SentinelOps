@@ -196,3 +196,32 @@ def test_transition_from_suppressed_maintenance_through_resolved_to_closed(
     )
 
     assert closed["status"] == "CLOSED"
+
+
+def test_transition_to_acknowledged_records_state_change_event(
+    db_connection,
+    make_incident,
+):
+    """Verify that transition to ACKNOWLEDGED persists a STATE_CHANGE event row."""
+    incident = make_incident(status="NEW")
+
+    transition(
+        db_connection,
+        incident,
+        "ACKNOWLEDGED",
+        actor="worker",
+        message="Claimed by worker.",
+    )
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM incident_events WHERE incident_id = %s",
+            (incident["id"],),
+        )
+        row = cur.fetchone()
+
+    assert row["event_type"] == "STATE_CHANGE"
+    assert row["from_status"] == "NEW"
+    assert row["to_status"] == "ACKNOWLEDGED"
+    assert row["actor"] == "worker"
+    assert row["message"] == "Claimed by worker."
