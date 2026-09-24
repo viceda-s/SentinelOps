@@ -4,6 +4,29 @@ All notable changes to SentinelOps's design are recorded here. This
 tracks changes to `docs/DESIGN.md`'s recorded decisions, not every commit
 — see git history for full implementation detail.
 
+## [1.4.0](https://github.com/viceda-s/SentinelOps/compare/v1.3.0...v1.4.0) (2026-09-24)
+
+
+### Features
+
+* **ci:** add non-blocking Release Please stage gated to main ([1cdca87](https://github.com/viceda-s/SentinelOps/commit/1cdca87cf12bf18c06df927d28fe3561188c55f9))
+* **ci:** add Release Please automation for versioning and changelog ([c3a4968](https://github.com/viceda-s/SentinelOps/commit/c3a496883afa1b9d99a7861fa47c5bec9d9c03bc))
+* **ci:** install Node.js and pinned release-please CLI on jenkins-agent ([94bc465](https://github.com/viceda-s/SentinelOps/commit/94bc465bb576f2ec51f6d70a12093ec56f896aed))
+* **vault:** dynamic secrets management via HashiCorp Vault (dev mode) ([#84](https://github.com/viceda-s/SentinelOps/issues/84)) ([13fefc6](https://github.com/viceda-s/SentinelOps/commit/13fefc6fc159f87f2713acf50045ab01a9fb00bc))
+
+
+### Bug Fixes
+
+* **ci:** isolate CI's Docker Compose project from local dev environment ([#85](https://github.com/viceda-s/SentinelOps/issues/85)) ([0042362](https://github.com/viceda-s/SentinelOps/commit/00423626426acab943dd1cb7d7fa082fa0a42d08))
+* **ci:** run smee-client as a persistent docker-compose service ([fc7c597](https://github.com/viceda-s/SentinelOps/commit/fc7c5971b06ff4f0d2b060890c3ba78d1f8d9563))
+* **ci:** use usernamePassword binding for github-pat in Release Please stage ([6756604](https://github.com/viceda-s/SentinelOps/commit/67566046990cc5798597d4d6c027e6dcfed76150))
+* **ci:** use usernamePassword binding for github-pat in Release Please stage ([639b999](https://github.com/viceda-s/SentinelOps/commit/639b99916a36d24b40885bb8fa6a036a17072911))
+
+
+### Documentation
+
+* add ADR-013 for Release Please versioning automation ([f0cb866](https://github.com/viceda-s/SentinelOps/commit/f0cb866044f960b68b34582f15fba6ca136dec0c))
+
 ## [1.3.0] - 2026-09-20
 
 ### Added
