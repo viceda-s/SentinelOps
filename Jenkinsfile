@@ -98,15 +98,24 @@ pipeline {
                 // The 6 Vault-integrated Dockerfiles COPY in role-id/secret-id baked at build time; those only exist after a real bootstrap against a running Vault.
                 sh 'docker compose up -d --wait postgres vault'
                 sh '''
-                    export VAULT_ADDR=http://127.0.0.1:8200
-                    export VAULT_DEV_ROOT_TOKEN=$(grep '^VAULT_DEV_ROOT_TOKEN=' .env | cut -d= -f2)
-                    export GRAFANA_ADMIN_PASSWORD=$(grep '^GRAFANA_ADMIN_PASSWORD=' .env | cut -d= -f2)
-                    export POSTGRES_DB=$(grep '^POSTGRES_DB=' .env | cut -d= -f2)
-                    export POSTGRES_USER=$(grep '^POSTGRES_USER=' .env | cut -d= -f2)
-                    export POSTGRES_PASSWORD=$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2)
-                    ./docker/vault/bootstrap/bootstrap_vault.sh
-                    ./docker/vault/bootstrap/seed_role_ids.sh
-                '''
+export VAULT_ADDR=http://127.0.0.1:8200
+export VAULT_DEV_ROOT_TOKEN=$(grep '^VAULT_DEV_ROOT_TOKEN=' .env | cut -d= -f2)
+export GRAFANA_ADMIN_PASSWORD=$(grep '^GRAFANA_ADMIN_PASSWORD=' .env | cut -d= -f2)
+export POSTGRES_DB=$(grep '^POSTGRES_DB=' .env | cut -d= -f2)
+export POSTGRES_USER=$(grep '^POSTGRES_USER=' .env | cut -d= -f2)
+export POSTGRES_PASSWORD=$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2)
+
+mkdir -p .bin
+cat > .bin/vault <<'SHIM'
+#!/usr/bin/env bash
+exec docker exec -i -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN="$VAULT_TOKEN" sentinelops-vault vault "$@"
+SHIM
+chmod +x .bin/vault
+export PATH="$PWD/.bin:$PATH"
+
+./docker/vault/bootstrap/bootstrap_vault.sh
+./docker/vault/bootstrap/seed_role_ids.sh
+'''
                 sh 'docker build -f docker/api/Dockerfile -t sentinelops/api:jenkins-${BUILD_NUMBER} .'
                 sh 'docker build -f docker/webhook-handler/Dockerfile -t sentinelops/webhook-handler:jenkins-${BUILD_NUMBER} .'
                 sh 'docker build -f docker/worker/Dockerfile -t sentinelops/worker:jenkins-${BUILD_NUMBER} .'
