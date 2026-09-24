@@ -1,5 +1,6 @@
 include:
   - path: ./docker/postgres/base.yml
+  - path: ./docker/vault/base.yml
 
 services:
   postgres:
@@ -8,6 +9,11 @@ services:
       - sentinelops_ci_postgres_data:/var/lib/postgresql/data
     ports:
       - "55432:5432"
+
+  vault:
+    container_name: sentinelops-ci-vault
+    ports:
+      - "58200:8200"
 
 volumes:
   sentinelops_ci_postgres_data:

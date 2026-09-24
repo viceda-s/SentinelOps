@@ -96,7 +96,8 @@ pipeline {
             steps {
                 sh 'cp .env.test .env'
                 // The 6 Vault-integrated Dockerfiles COPY in role-id/secret-id baked at build time; those only exist after a real bootstrap against a running Vault.
-                sh 'docker compose up -d --wait postgres vault'
+                // Isolated project/compose file (like Build & Test) so this never collides with a locally running dev stack.
+                sh 'docker compose -f docker-compose.ci.yml -p sentinelops-ci up -d --wait postgres vault'
                 sh '''
 export VAULT_ADDR=http://127.0.0.1:8200
 export VAULT_DEV_ROOT_TOKEN=$(grep '^VAULT_DEV_ROOT_TOKEN=' .env | cut -d= -f2)
@@ -108,7 +109,7 @@ export POSTGRES_PASSWORD=$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2)
 mkdir -p .bin
 cat > .bin/vault <<'SHIM'
 #!/usr/bin/env bash
-exec docker exec -i -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN="$VAULT_TOKEN" sentinelops-vault vault "$@"
+exec docker exec -i -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN="$VAULT_TOKEN" sentinelops-ci-vault vault "$@"
 SHIM
 chmod +x .bin/vault
 export PATH="$PWD/.bin:$PATH"
@@ -116,16 +117,17 @@ export PATH="$PWD/.bin:$PATH"
 ./docker/vault/bootstrap/bootstrap_vault.sh
 ./docker/vault/bootstrap/seed_role_ids.sh
 '''
-                sh 'docker build -f docker/api/Dockerfile -t sentinelops/api:jenkins-${BUILD_NUMBER} .'
-                sh 'docker build -f docker/webhook-handler/Dockerfile -t sentinelops/webhook-handler:jenkins-${BUILD_NUMBER} .'
-                sh 'docker build -f docker/worker/Dockerfile -t sentinelops/worker:jenkins-${BUILD_NUMBER} .'
-                sh 'docker build -f docker/report-generator/Dockerfile -t sentinelops/report-generator:jenkins-${BUILD_NUMBER} .'
-                sh 'docker build -f docker/maintenance-monitor/Dockerfile -t sentinelops/maintenance-monitor:jenkins-${BUILD_NUMBER} .'
-                sh 'docker build -f docker/grafana/Dockerfile -t sentinelops/grafana:jenkins-${BUILD_NUMBER} .'
+                // Tagged under a dedicated namespace, distinct from sentinelops/* used by local dev builds.
+                sh 'docker build -f docker/api/Dockerfile -t sentinelops-ci/api:jenkins-${BUILD_NUMBER} .'
+                sh 'docker build -f docker/webhook-handler/Dockerfile -t sentinelops-ci/webhook-handler:jenkins-${BUILD_NUMBER} .'
+                sh 'docker build -f docker/worker/Dockerfile -t sentinelops-ci/worker:jenkins-${BUILD_NUMBER} .'
+                sh 'docker build -f docker/report-generator/Dockerfile -t sentinelops-ci/report-generator:jenkins-${BUILD_NUMBER} .'
+                sh 'docker build -f docker/maintenance-monitor/Dockerfile -t sentinelops-ci/maintenance-monitor:jenkins-${BUILD_NUMBER} .'
+                sh 'docker build -f docker/grafana/Dockerfile -t sentinelops-ci/grafana:jenkins-${BUILD_NUMBER} .'
             }
             post {
                 always {
-                    sh 'docker compose rm -sf postgres vault || true'
+                    sh 'docker compose -f docker-compose.ci.yml -p sentinelops-ci down -v || true'
                 }
             }
         }
@@ -138,7 +140,7 @@ export PATH="$PWD/.bin:$PATH"
                             -v trivy-cache:/root/.cache/trivy \\
                             aquasec/trivy:latest image --exit-code 1 --severity HIGH,CRITICAL \\
                             --ignorefile /.trivyignore \\
-                            sentinelops/$image:jenkins-${BUILD_NUMBER}
+                            sentinelops-ci/$image:jenkins-${BUILD_NUMBER}
                     done
                 '''
             }
@@ -171,12 +173,6 @@ export PATH="$PWD/.bin:$PATH"
                 echo "SonarQube Cloud report: check the Quality Gate stage output above for the dashboard link."
                 echo "Trivy scan results: check the Vulnerability Scan stage console output above."
             }
-        }
-    }
-
-    post {
-        always {
-            sh 'docker compose rm -sf postgres || true'
         }
     }
 }
