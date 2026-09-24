@@ -1,6 +1,8 @@
-FROM grafana/grafana:11.2.0
+FROM grafana/grafana:11.6.16
 
 USER root
+
+RUN apk update && apk upgrade --no-cache
 
 RUN curl -fsSL -o /tmp/vault.zip https://releases.hashicorp.com/vault/2.1.1/vault_2.1.1_linux_amd64.zip && \
     unzip /tmp/vault.zip -d /usr/local/bin && \
