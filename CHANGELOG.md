@@ -4,6 +4,13 @@ All notable changes to SentinelOps's design are recorded here. This
 tracks changes to `docs/DESIGN.md`'s recorded decisions, not every commit
 — see git history for full implementation detail.
 
+## [1.4.1](https://github.com/viceda-s/SentinelOps/compare/v1.4.0...v1.4.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* **events:** implement typed domain event model for incident tracking ([#86](https://github.com/viceda-s/SentinelOps/issues/86)) ([fe56e26](https://github.com/viceda-s/SentinelOps/commit/fe56e26738ea95e8a9c2e35e52767fe11e93dbe1))
+
 ## [1.4.0](https://github.com/viceda-s/SentinelOps/compare/v1.3.0...v1.4.0) (2026-09-24)
 
 
