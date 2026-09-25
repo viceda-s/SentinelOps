@@ -15,6 +15,8 @@ from automation.response_engine.remediation import (
     _verify_timeout_for,
     collect_diagnostics,
     disk_cleanup,
+    record_attempt_finish,
+    record_attempt_start,
     restart_service,
 )
 
@@ -128,14 +130,31 @@ def test_record_attempt_start_gives_each_call_a_distinct_execution_id(
     db_connection, make_incident
 ):
     """Two record_attempt_start calls for the same incident never share an execution_id."""
-    from automation.response_engine.remediation import record_attempt_start
-
     incident = make_incident(status="ACKNOWLEDGED")
 
     _, execution_id_1 = record_attempt_start(db_connection, incident, "restart_service")
     _, execution_id_2 = record_attempt_start(db_connection, incident, "restart_service")
 
     assert execution_id_1 != execution_id_2
+
+
+def test_record_attempt_start_records_remediation_started_event(
+    db_connection, make_incident
+):
+    """record_attempt_start persists a REMEDIATION_STARTED incident_events row."""
+    incident = make_incident(status="ACKNOWLEDGED")
+
+    record_attempt_start(db_connection, incident, "restart_service")
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT event_type, actor FROM incident_events WHERE incident_id = %s",
+            (incident["id"],),
+        )
+        row = cur.fetchone()
+
+    assert row["event_type"] == "REMEDIATION_STARTED"
+    assert row["actor"] == "worker"
 
 
 def test_record_attempt_finish_requires_matching_execution_id(
@@ -166,11 +185,6 @@ def test_record_attempt_finish_succeeds_with_matching_execution_id(
     db_connection, make_incident
 ):
     """record_attempt_finish succeeds when execution_id matches the row it started."""
-    from automation.response_engine.remediation import (
-        record_attempt_finish,
-        record_attempt_start,
-    )
-
     incident = make_incident(status="ACKNOWLEDGED")
 
     attempt_number, execution_id = record_attempt_start(
@@ -197,9 +211,44 @@ def test_record_attempt_finish_succeeds_with_matching_execution_id(
     assert row["finished_at"] is not None
 
 
+def test_record_attempt_finish_records_remediation_completed_event(
+    db_connection, make_incident
+):
+    """record_attempt_finish persists a REMEDIATION_COMPLETED incident_events row."""
+    incident = make_incident(status="ACKNOWLEDGED")
+
+    attempt_number, execution_id = record_attempt_start(
+        db_connection, incident, "restart_service"
+    )
+
+    record_attempt_finish(
+        db_connection,
+        incident,
+        attempt_number,
+        "restart_service",
+        result="success",
+        execution_id=execution_id,
+    )
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT event_type, actor
+            FROM incident_events
+            WHERE incident_id = %s
+            ORDER BY sequence DESC
+            LIMIT 1
+            """,
+            (incident["id"],),
+        )
+        row = cur.fetchone()
+
+    assert row["event_type"] == "REMEDIATION_COMPLETED"
+    assert row["actor"] == "worker"
+
+
 def test_execution_id_is_queryable(db_connection, make_incident):
     """A remediation_attempts row can be looked up directly by execution_id."""
-    from automation.response_engine.remediation import record_attempt_start
 
     incident = make_incident(status="ACKNOWLEDGED")
 

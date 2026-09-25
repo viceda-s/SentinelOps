@@ -261,3 +261,35 @@ def test_write_pdf_and_record_writes_file_and_inserts_row(
     actual_checksum = hashlib.sha256(report_path.read_bytes()).hexdigest()
 
     assert row["checksum"] == actual_checksum
+
+
+def test_write_pdf_and_record_persists_report_generated_event(
+    db_connection,
+    make_incident,
+    tmp_path,
+):
+    """Verify that write_pdf_and_record persists a REPORT_GENERATED incident_events row."""
+    incident = make_incident(
+        status="CLOSED",
+        root_cause_analysis="RCA text.",
+    )
+
+    model = build_report_model(db_connection, incident["id"])
+
+    write_pdf_and_record(db_connection, model, tmp_path)
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT event_type, actor
+            FROM incident_events
+            WHERE incident_id = %s
+            ORDER BY sequence DESC
+            LIMIT 1
+            """,
+            (incident["id"],),
+        )
+        row = cur.fetchone()
+
+    assert row["event_type"] == "REPORT_GENERATED"
+    assert row["actor"] == "report_generator"

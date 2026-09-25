@@ -5,13 +5,16 @@ Enforces valid lifecycle state transitions, updates database timestamp columns,
 appends audit records to `incident_events`, and records Prometheus duration metrics.
 """
 
-import json
 import logging
 from datetime import datetime, timezone
 
 from psycopg2.extensions import connection
 
-from .events import get_next_sequence
+from .events import (
+    IncidentAcknowledged,
+    StateChanged,
+    record_event,
+)
 from .metrics import (
     INCIDENT_RESOLUTION_SECONDS,
     INCIDENT_RESPONSE_SECONDS,
@@ -107,39 +110,17 @@ def transition(
                 ),
             )
 
-        # Allocate next audit sequence number.
-        sequence = get_next_sequence(conn, incident["id"])
-
-        # Insert audit event.
-        cur.execute(
-            """
-            INSERT INTO incident_events (
-                incident_id,
-                sequence,
-                occurred_at,
-                actor,
-                event_type,
-                from_status,
-                to_status,
-                message,
-                payload
-            )
-            VALUES (
-                %s, %s, NOW(), %s, %s,
-                %s, %s, %s, %s
-            )
-            """,
-            (
-                incident["id"],
-                sequence,
-                actor,
-                "STATE_CHANGE",
-                current_status,
-                to_status,
-                message,
-                json.dumps({}),
-            ),
+        # Record audit event.
+        event_cls = (
+            IncidentAcknowledged if to_status == "ACKNOWLEDGED" else StateChanged
         )
+        event = event_cls(
+            actor=actor,
+            message=message,
+            from_status=current_status,
+            to_status=to_status,
+        )
+        record_event(conn, incident["id"], event)
 
     # Keep in-memory incident dictionary in sync.
 

@@ -120,6 +120,7 @@ These principles are documented in the project's Architecture Decision Records
 * PostgreSQL-backed incident store
 * Concurrent worker coordination using `FOR UPDATE SKIP LOCKED`
 * Atomic per-incident event sequence generation using database row locking (`events.py`)
+* Typed domain event model (`IncidentCreated`, `IncidentAcknowledged`, `RemediationStarted`, `RemediationCompleted`, `SLABreached`, `ReportGenerated`) for decoupled in-process event consumption
 * Explicit incident state machine
 * Structured audit trail
 * Structured JSON logging

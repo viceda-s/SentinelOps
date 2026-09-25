@@ -11,9 +11,8 @@ from __future__ import annotations
 import logging
 
 from psycopg2.extensions import connection
-from psycopg2.extras import Json
 
-from .events import get_next_sequence
+from .events import SLABreached, record_event
 from .metrics import SLA_BREACHES_TOTAL
 
 _RESPONSE_BREACH_SQL = """
@@ -52,37 +51,8 @@ def _check_one(conn: connection, sql: str, breach_type: str, message: str) -> No
         cur.execute(sql)
         breached = cur.fetchall()
         for incident in breached:
-            sequence = get_next_sequence(conn, incident["id"])
-
-            cur.execute(
-                """
-                INSERT INTO incident_events (
-                    incident_id,
-                    sequence,
-                    occurred_at,
-                    actor,
-                    event_type,
-                    message,
-                    payload
-                )
-                VALUES(
-                    %s,
-                    %s,
-                    NOW(),
-                    %s,
-                    %s,
-                    %s,
-                    %s
-                )
-                """,
-                (
-                    incident["id"],
-                    sequence,
-                    "worker",
-                    "NOTE",
-                    message,
-                    Json({}),
-                ),
+            record_event(
+                conn, incident["id"], SLABreached(actor="worker", message=message)
             )
 
             SLA_BREACHES_TOTAL.labels(type=breach_type).inc()

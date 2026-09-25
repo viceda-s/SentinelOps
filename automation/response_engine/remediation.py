@@ -22,6 +22,7 @@ from psycopg2.extensions import connection
 import docker
 
 from .config import DiagnosticsSettings, PrometheusSettings
+from .events import RemediationCompleted, RemediationStarted, record_event
 from .metrics import REMEDIATION_ATTEMPTS_TOTAL, WORKER_HEARTBEAT_TIMESTAMP
 from .state_machine import transition
 from .verification import verify_recovery
@@ -108,6 +109,16 @@ def record_attempt_start(
             ),
         )
 
+    record_event(
+        conn,
+        incident["id"],
+        RemediationStarted(
+            actor="worker",
+            message=f"Starting {playbook} attempt {attempt_number}",
+            payload={"execution_id": execution_id},
+        ),
+    )
+
     return attempt_number, execution_id
 
 
@@ -167,6 +178,16 @@ def record_attempt_finish(
             playbook=playbook,
             result=result,
         ).inc()
+
+    record_event(
+        conn,
+        incident["id"],
+        RemediationCompleted(
+            actor="worker",
+            message=f"Finished {playbook} attempt {attempt_number}",
+            payload={"execution_id": execution_id, "result": result},
+        ),
+    )
 
 
 def _verify_timeout_for(container, verification: dict) -> float:
