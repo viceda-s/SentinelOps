@@ -1,6 +1,6 @@
 [project]
 name = "sentinelops"
-version = "1.4.0"
+version = "1.4.1"
 
 [tool.pytest.ini_options]
 addopts = "-m 'not e2e'"
